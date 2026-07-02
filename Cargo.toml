@@ -1,0 +1,22 @@
+[package]
+name = "gfile-rust"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "GPL-3.0-only"
+repository = "https://github.com/Maymall/gfile-rust"
+description = "A conservative Rust CLI for GigaFile public web uploads and downloads."
+
+[lib]
+name = "gfile_rust"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gfile"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.5.23", features = ["derive"] }
+thiserror = "2.0.12"
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
