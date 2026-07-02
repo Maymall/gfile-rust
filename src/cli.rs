@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::path::PathBuf;
+use std::{env, path::PathBuf, time::Duration};
 
 use clap::{ArgAction, Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use crate::error::GfileError;
+use crate::{download, error::GfileError};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -34,6 +34,34 @@ pub enum Commands {
     Download {
         /// Download page URL.
         url: String,
+
+        /// Output directory or explicit output file path.
+        #[arg(short = 'o', long = "output")]
+        output: Option<PathBuf>,
+
+        /// Overwrite the final output file if it already exists.
+        #[arg(long = "force")]
+        force: bool,
+
+        /// Per-read stall timeout in seconds.
+        #[arg(long = "timeout", default_value_t = 60)]
+        timeout: u64,
+
+        /// Retry count for retryable network/server failures.
+        #[arg(long = "retries", default_value_t = 3)]
+        retries: u32,
+
+        /// Override the default User-Agent.
+        #[arg(long = "user-agent")]
+        user_agent: Option<String>,
+
+        /// Save the fetched download page HTML for diagnostics.
+        #[arg(long = "dump-page")]
+        dump_page: Option<PathBuf>,
+
+        /// Disable progress and non-error status output.
+        #[arg(short = 'q', long = "quiet")]
+        quiet: bool,
     },
     /// Upload a local file.
     Upload {
@@ -58,15 +86,34 @@ pub fn init_tracing(verbosity: u8) {
         .try_init();
 }
 
-pub fn run(cli: Cli) -> Result<(), GfileError> {
+pub async fn run(cli: Cli) -> Result<(), GfileError> {
     match cli.command {
-        Commands::Download { url: _ } => {
-            eprintln!("download is not implemented yet");
-            Err(GfileError::Parse {
-                what: "download command is not implemented yet".to_owned(),
-                hint: "This M0 bootstrap intentionally contains no transfer implementation."
-                    .to_owned(),
+        Commands::Download {
+            url,
+            output,
+            force,
+            timeout,
+            retries,
+            user_agent,
+            dump_page,
+            quiet,
+        } => {
+            let outcome = download::download(download::DownloadOptions {
+                url,
+                output,
+                force,
+                timeout: Duration::from_secs(timeout),
+                retries,
+                user_agent,
+                dump_page,
+                quiet,
+                allow_any_host: test_allow_any_host(),
             })
+            .await?;
+            if !quiet {
+                println!("{}", outcome.path.display());
+            }
+            Ok(())
         }
         Commands::Upload { file: _ } => {
             eprintln!("upload is not implemented yet");
@@ -75,4 +122,8 @@ pub fn run(cli: Cli) -> Result<(), GfileError> {
             })
         }
     }
+}
+
+fn test_allow_any_host() -> bool {
+    env::var("GFILE_TEST_ALLOW_ANY_HOST").as_deref() == Ok("1")
 }

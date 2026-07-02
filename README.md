@@ -24,7 +24,8 @@ See [NOTICE.md](NOTICE.md) for details.
 ## Disclaimer
 
 This is an unofficial tool. Users are responsible for complying with GigaFile's
-official terms and acceptable-use rules.
+official terms and acceptable-use rules, including
+https://gigafile.nu/privacy.php.
 
 ## Behavior Boundaries
 

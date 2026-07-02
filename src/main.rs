@@ -17,7 +17,18 @@ fn main() -> ExitCode {
 
     cli::init_tracing(cli.verbose);
 
-    match cli::run(cli) {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(runtime) => runtime,
+        Err(err) => {
+            eprintln!("failed to start async runtime: {err}");
+            return exit_code(1);
+        }
+    };
+
+    match runtime.block_on(cli::run(cli)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("{}", err.user_message());

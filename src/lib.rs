@@ -3,4 +3,10 @@
 //! Library entry points for the `gfile` command line tool.
 
 pub mod cli;
+pub mod download;
 pub mod error;
+pub mod http;
+pub mod naming;
+pub mod parser;
+pub mod progress;
+pub mod urlinfo;
