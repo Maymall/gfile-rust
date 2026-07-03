@@ -1679,7 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "rgfile"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "assert_cmd",
  "clap",

@@ -7,6 +7,14 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-03
+
+### Added
+
+- Add experimental `--threads` / `download.threads` segmented download attempts with automatic single-connection fallback; live GigaFile currently declines parallel ranged downloads.
+- Add segmented `.part` sidecar v2 metadata so interrupted ranged download attempts can resume from the first unfinished segment.
+- Report the actual per-file download connection count in JSON output.
+
 ## [0.3.2] - 2026-07-03
 
 ### Added
