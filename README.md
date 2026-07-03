@@ -64,7 +64,14 @@ With a Rust toolchain (any platform, builds from [crates.io](https://crates.io/c
 cargo install rgfile
 ```
 
-Arch Linux (AUR):
+Homebrew (macOS arm64/Intel and Linux, prebuilt binaries from
+[`Maymall/homebrew-tap`](https://github.com/Maymall/homebrew-tap)):
+
+```bash
+brew install Maymall/tap/rgfile
+```
+
+Arch Linux (AUR, pending package publication):
 
 ```bash
 yay -S rgfile-bin
