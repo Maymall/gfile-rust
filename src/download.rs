@@ -235,7 +235,7 @@ impl DownloadLock {
                 file,
                 path: lock_path,
             }),
-            Err(source) if source.kind() == io::ErrorKind::WouldBlock => {
+            Err(source) if is_lock_contention(&source) => {
                 Err(GfileError::TargetLocked { path: lock_path })
             }
             Err(source) => Err(io_error(source, &lock_path, IoOp::Write)),
@@ -1937,6 +1937,16 @@ fn lock_path_for_sidecar(sidecar_path: &Path) -> Result<PathBuf, GfileError> {
     let mut lock_path = sidecar_path.to_owned();
     lock_path.set_file_name(format!("{}.lock", file_name.to_string_lossy()));
     Ok(lock_path)
+}
+
+fn is_lock_contention(source: &io::Error) -> bool {
+    source.kind() == io::ErrorKind::WouldBlock
+        || matches!(
+            source.raw_os_error(),
+            // Unix EAGAIN/EWOULDBLOCK and Windows ERROR_SHARING_VIOLATION /
+            // ERROR_LOCK_VIOLATION can surface from nonblocking file locks.
+            Some(11 | 32 | 33 | 35)
+        )
 }
 
 fn fresh_resume_plan(final_path: &Path) -> Result<ResumePlan, GfileError> {
