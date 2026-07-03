@@ -111,15 +111,21 @@ struct SegmentState {
 struct SegmentResumePlan {
     part_path: PathBuf,
     sidecar_path: PathBuf,
+    expected: u64,
     segments: Vec<SegmentState>,
     resumed: bool,
 }
 
-#[derive(Debug, Clone)]
 struct SegmentedDownloadPlan {
-    expected: u64,
     header_name: Option<String>,
     resume: SegmentResumePlan,
+    initial: InitialSegmentResponse,
+}
+
+struct InitialSegmentResponse {
+    index: usize,
+    range_start: u64,
+    response: reqwest::Response,
 }
 
 #[derive(Debug, Clone)]
@@ -359,7 +365,7 @@ async fn try_download_file_sequential(
     final_path: &Path,
     options: &DownloadOptions,
 ) -> Result<SingleDownloadOutcome, GfileError> {
-    let mut target_path = final_path.to_owned();
+    let target_path = final_path.to_owned();
     let header_output_dir = header_filename_output_dir(final_path, options.output.as_deref())?;
     let mut resume = prepare_resume(&target_path, remote_file, options).await?;
     let mut response =
@@ -379,6 +385,27 @@ async fn try_download_file_sequential(
         response = send_download_request(client, download_url, None, options).await?;
     }
 
+    consume_download_response_sequential(
+        response,
+        download_url,
+        remote_file,
+        target_path,
+        header_output_dir,
+        resume,
+        options,
+    )
+    .await
+}
+
+async fn consume_download_response_sequential(
+    response: reqwest::Response,
+    download_url: &str,
+    remote_file: &RemoteFile,
+    mut target_path: PathBuf,
+    header_output_dir: Option<PathBuf>,
+    mut resume: ResumePlan,
+    options: &DownloadOptions,
+) -> Result<SingleDownloadOutcome, GfileError> {
     if !response.status().is_success() {
         return Err(http::status_error(response.status(), download_url));
     }
@@ -549,12 +576,54 @@ async fn try_download_file_segmented_or_fallback(
     final_path: &Path,
     options: &DownloadOptions,
 ) -> Result<SingleDownloadOutcome, GfileError> {
-    let mut target_path = final_path.to_owned();
-    let header_output_dir = header_filename_output_dir(final_path, options.output.as_deref())?;
-    let response = send_download_request(client, download_url, None, options).await?;
+    if let Some(segment_resume) =
+        load_existing_segmented_resume(final_path, remote_file, options).await?
+    {
+        return try_download_file_segmented_resume(
+            client,
+            download_url,
+            remote_file,
+            final_path,
+            segment_resume,
+            options,
+        )
+        .await;
+    }
 
+    try_download_file_segmented_fresh(client, download_url, remote_file, final_path, options).await
+}
+
+async fn try_download_file_segmented_fresh(
+    client: &reqwest::Client,
+    download_url: &str,
+    remote_file: &RemoteFile,
+    final_path: &Path,
+    options: &DownloadOptions,
+) -> Result<SingleDownloadOutcome, GfileError> {
+    let range_end = initial_segment_end(remote_file, options.threads);
+    let response = send_range_request(client, download_url, 0, range_end, options.timeout).await?;
+    if response.status() == StatusCode::OK {
+        warn!(
+            "segmented download was not accepted by the server: server returned HTTP 200 to the first Range request; consuming this response with one connection"
+        );
+        return consume_200_fallback_response(
+            response,
+            download_url,
+            remote_file,
+            final_path,
+            options,
+        )
+        .await;
+    }
     if !response.status().is_success() {
         return Err(http::status_error(response.status(), download_url));
+    }
+    if response.status() != StatusCode::PARTIAL_CONTENT {
+        warn!(
+            "segmented download was not accepted by the server: server returned HTTP {} to the first Range request; falling back to one connection",
+            response.status().as_u16()
+        );
+        return sequential_fallback(client, download_url, remote_file, final_path, options).await;
     }
 
     if is_html_content_type(response.headers()) {
@@ -569,7 +638,32 @@ async fn try_download_file_segmented_or_fallback(
         ));
     }
 
+    let content_range = parse_content_range(response.headers())?;
+    let reached_eof = content_range
+        .total
+        .is_some_and(|total| content_range.end.saturating_add(1) == total);
+    if content_range.start != 0 || (content_range.end != range_end && !reached_eof) {
+        warn!(
+            "segmented download was not accepted by the server: Content-Range was {}-{}, expected 0-{range_end}; falling back to one connection",
+            content_range.start, content_range.end
+        );
+        return sequential_fallback(client, download_url, remote_file, final_path, options).await;
+    }
+    let Some(expected) = content_range.total else {
+        warn!(
+            "segmented download response has no Content-Range total; falling back to one connection"
+        );
+        return sequential_fallback(client, download_url, remote_file, final_path, options).await;
+    };
+    if expected == 0 {
+        warn!("empty file download uses the single-connection path");
+        return sequential_fallback(client, download_url, remote_file, final_path, options).await;
+    }
+    warn_on_display_size_mismatch(remote_file, Some(expected));
+
     let header_name = content_disposition_filename(response.headers());
+    let header_output_dir = header_filename_output_dir(final_path, options.output.as_deref())?;
+    let mut target_path = final_path.to_owned();
     if let (Some(dir), Some(name)) = (header_output_dir.as_deref(), header_name.as_deref()) {
         let header_path = dir.join(sanitize_server_filename(name, &remote_file.file_id));
         if header_path != target_path {
@@ -578,32 +672,31 @@ async fn try_download_file_segmented_or_fallback(
         }
     }
 
-    let Some(expected) = response.content_length() else {
-        warn!(
-            "download response has no Content-Length; falling back to single-connection download"
-        );
-        return sequential_fallback(client, download_url, remote_file, &target_path, options).await;
+    let (part_path, sidecar_path) = part_paths(&target_path)?;
+    let segments = build_segments_from_initial(expected, options.threads, content_range.end);
+    let segment_resume = SegmentResumePlan {
+        part_path,
+        sidecar_path,
+        expected,
+        segments,
+        resumed: false,
     };
-    if expected == 0 {
-        warn!("empty file download uses the single-connection path");
-        return sequential_fallback(client, download_url, remote_file, &target_path, options).await;
-    }
-    warn_on_display_size_mismatch(remote_file, Some(expected));
-    drop(response);
-
-    let segment_resume =
-        prepare_segmented_resume(&target_path, remote_file, expected, options).await?;
     let part_path = segment_resume.part_path.clone();
     let sidecar_path = segment_resume.sidecar_path.clone();
+
     match try_download_file_segmented(
         client,
         download_url,
         remote_file,
         &target_path,
         SegmentedDownloadPlan {
-            expected,
             header_name,
             resume: segment_resume,
+            initial: InitialSegmentResponse {
+                index: 0,
+                range_start: 0,
+                response,
+            },
         },
         options,
     )
@@ -620,6 +713,149 @@ async fn try_download_file_segmented_or_fallback(
         }
         Err(SegmentDownloadError::Failed(error)) => Err(error),
     }
+}
+
+async fn try_download_file_segmented_resume(
+    client: &reqwest::Client,
+    download_url: &str,
+    remote_file: &RemoteFile,
+    final_path: &Path,
+    segment_resume: SegmentResumePlan,
+    options: &DownloadOptions,
+) -> Result<SingleDownloadOutcome, GfileError> {
+    let Some((index, segment)) = first_incomplete_segment(&segment_resume.segments) else {
+        promote_part(
+            &segment_resume.part_path,
+            &segment_resume.sidecar_path,
+            final_path,
+            options.force,
+        )
+        .await?;
+        return Ok(SingleDownloadOutcome {
+            name: None,
+            path: final_path.to_owned(),
+            bytes: segment_resume.expected,
+            resumed: true,
+            threads: segment_resume.segments.len() as u8,
+        });
+    };
+    let range_start = segment.start + segment.downloaded.min(segment_len(&segment));
+    let response = send_range_request(
+        client,
+        download_url,
+        range_start,
+        segment.end,
+        options.timeout,
+    )
+    .await?;
+    if response.status() == StatusCode::OK {
+        warn!(
+            "segmented download was not accepted by the server: server returned HTTP 200 to a resumed Range request; clearing segments and consuming this response with one connection"
+        );
+        remove_if_exists(&segment_resume.part_path).await?;
+        remove_if_exists(&segment_resume.sidecar_path).await?;
+        return consume_200_fallback_response(
+            response,
+            download_url,
+            remote_file,
+            final_path,
+            options,
+        )
+        .await;
+    }
+    if !response.status().is_success() {
+        return Err(http::status_error(response.status(), download_url));
+    }
+    if response.status() != StatusCode::PARTIAL_CONTENT {
+        warn!(
+            "segmented download was not accepted by the server: server returned HTTP {} to a resumed Range request; falling back to one connection",
+            response.status().as_u16()
+        );
+        remove_if_exists(&segment_resume.part_path).await?;
+        remove_if_exists(&segment_resume.sidecar_path).await?;
+        return sequential_fallback(client, download_url, remote_file, final_path, options).await;
+    }
+
+    let content_range = parse_content_range(response.headers())?;
+    if content_range.start != range_start || content_range.end != segment.end {
+        warn!(
+            "segmented download was not accepted by the server: Content-Range was {}-{}, expected {range_start}-{}; falling back to one connection",
+            content_range.start, content_range.end, segment.end
+        );
+        remove_if_exists(&segment_resume.part_path).await?;
+        remove_if_exists(&segment_resume.sidecar_path).await?;
+        return sequential_fallback(client, download_url, remote_file, final_path, options).await;
+    }
+    if let Some(total) = content_range.total {
+        if total != segment_resume.expected {
+            warn!(
+                "segmented download was not accepted by the server: Content-Range total is {total}, expected {}; falling back to one connection",
+                segment_resume.expected
+            );
+            remove_if_exists(&segment_resume.part_path).await?;
+            remove_if_exists(&segment_resume.sidecar_path).await?;
+            return sequential_fallback(client, download_url, remote_file, final_path, options)
+                .await;
+        }
+    }
+
+    let header_name = content_disposition_filename(response.headers());
+    let part_path = segment_resume.part_path.clone();
+    let sidecar_path = segment_resume.sidecar_path.clone();
+    match try_download_file_segmented(
+        client,
+        download_url,
+        remote_file,
+        final_path,
+        SegmentedDownloadPlan {
+            header_name,
+            resume: segment_resume,
+            initial: InitialSegmentResponse {
+                index,
+                range_start,
+                response,
+            },
+        },
+        options,
+    )
+    .await
+    {
+        Ok(outcome) => Ok(outcome),
+        Err(SegmentDownloadError::Fallback(reason)) => {
+            warn!(
+                "segmented download was not accepted by the server: {reason}; falling back to one connection"
+            );
+            remove_if_exists(&part_path).await?;
+            remove_if_exists(&sidecar_path).await?;
+            sequential_fallback(client, download_url, remote_file, final_path, options).await
+        }
+        Err(SegmentDownloadError::Failed(error)) => Err(error),
+    }
+}
+
+async fn consume_200_fallback_response(
+    response: reqwest::Response,
+    download_url: &str,
+    remote_file: &RemoteFile,
+    final_path: &Path,
+    options: &DownloadOptions,
+) -> Result<SingleDownloadOutcome, GfileError> {
+    let mut sequential_options = options.clone();
+    sequential_options.threads = DEFAULT_DOWNLOAD_THREADS;
+    sequential_options.no_resume = true;
+    let header_output_dir =
+        header_filename_output_dir(final_path, sequential_options.output.as_deref())?;
+    let resume = fresh_resume_plan(final_path)?;
+    consume_download_response_sequential(
+        response,
+        download_url,
+        remote_file,
+        final_path.to_owned(),
+        header_output_dir,
+        resume,
+        &sequential_options,
+    )
+    .await
 }
 
 async fn sequential_fallback(
@@ -650,9 +886,12 @@ async fn try_download_file_segmented(
     plan: SegmentedDownloadPlan,
     options: &DownloadOptions,
 ) -> Result<SingleDownloadOutcome, SegmentDownloadError> {
-    let expected = plan.expected;
-    let header_name = plan.header_name;
-    let segment_resume = plan.resume;
+    let SegmentedDownloadPlan {
+        header_name,
+        resume: segment_resume,
+        initial,
+    } = plan;
+    let expected = segment_resume.expected;
     let part_file = if segment_resume.resumed {
         OpenOptions::new()
             .create(true)
@@ -717,8 +956,19 @@ async fn try_download_file_segmented(
         shared_segments: Arc::clone(&shared_segments),
     };
     let mut handles = Vec::new();
+    let initial_index = initial.index;
+    let initial_context = context.clone();
+    handles.push(tokio::spawn(async move {
+        consume_segment_response(
+            &initial_context,
+            initial.index,
+            initial.range_start,
+            initial.response,
+        )
+        .await
+    }));
     for (index, segment) in segment_resume.segments.iter().enumerate() {
-        if segment.done {
+        if index == initial_index || segment.done {
             continue;
         }
         let context = context.clone();
@@ -844,7 +1094,20 @@ async fn try_download_segment(
     }
 
     let range_start = segment.start + already_downloaded;
-    let mut response = send_segment_request(context, range_start, segment.end).await?;
+    let response = send_segment_request(context, range_start, segment.end).await?;
+    consume_segment_response(context, index, range_start, response).await
+}
+
+async fn consume_segment_response(
+    context: &SegmentContext,
+    index: usize,
+    range_start: u64,
+    mut response: reqwest::Response,
+) -> Result<(), SegmentDownloadError> {
+    let segment =
+        segment_at(&context.shared_segments, index).map_err(SegmentDownloadError::Failed)?;
+    let segment_len = segment_len(&segment);
+    let already_downloaded = range_start.saturating_sub(segment.start);
     if response.status() == StatusCode::OK {
         return Err(SegmentDownloadError::Fallback(
             "server returned HTTP 200 to a Range request".to_owned(),
@@ -954,47 +1217,47 @@ async fn send_segment_request(
     start: u64,
     end: u64,
 ) -> Result<reqwest::Response, SegmentDownloadError> {
-    let request = context
-        .client
-        .get(&context.download_url)
-        .header(header::RANGE, format!("bytes={start}-{end}"));
-    let result = tokio::time::timeout(context.timeout, request.send())
-        .await
-        .map_err(|_| {
-            SegmentDownloadError::Failed(timeout_network_error("starting download segment"))
-        })?;
-    result.map_err(|source| {
-        SegmentDownloadError::Failed(network_error(source, "starting download segment"))
-    })
+    send_range_request(
+        &context.client,
+        &context.download_url,
+        start,
+        end,
+        context.timeout,
+    )
+    .await
+    .map_err(SegmentDownloadError::Failed)
 }
 
-async fn prepare_segmented_resume(
+async fn send_range_request(
+    client: &reqwest::Client,
+    download_url: &str,
+    start: u64,
+    end: u64,
+    timeout: Duration,
+) -> Result<reqwest::Response, GfileError> {
+    let request = client
+        .get(download_url)
+        .header(header::RANGE, format!("bytes={start}-{end}"));
+    let result = tokio::time::timeout(timeout, request.send())
+        .await
+        .map_err(|_| timeout_network_error("starting download segment"))?;
+    result.map_err(|source| network_error(source, "starting download segment"))
+}
+
+async fn load_existing_segmented_resume(
     final_path: &Path,
     remote_file: &RemoteFile,
-    expected: u64,
     options: &DownloadOptions,
-) -> Result<SegmentResumePlan, GfileError> {
+) -> Result<Option<SegmentResumePlan>, GfileError> {
     let (part_path, sidecar_path) = part_paths(final_path)?;
-    let fresh_segments = build_segments(expected, options.threads);
-
     if options.no_resume {
         remove_if_exists(&part_path).await?;
         remove_if_exists(&sidecar_path).await?;
-        return Ok(SegmentResumePlan {
-            part_path,
-            sidecar_path,
-            segments: fresh_segments,
-            resumed: false,
-        });
+        return Ok(None);
     }
 
     if !part_path.exists() {
-        return Ok(SegmentResumePlan {
-            part_path,
-            sidecar_path,
-            segments: fresh_segments,
-            resumed: false,
-        });
+        return Ok(None);
     }
 
     let sidecar = match fs::read(&sidecar_path).await {
@@ -1003,51 +1266,58 @@ async fn prepare_segmented_resume(
     };
     let Some(mut sidecar) = sidecar else {
         warn!("existing segmented .part has missing or damaged v2 sidecar; restarting from zero");
-        return Ok(SegmentResumePlan {
-            part_path,
-            sidecar_path,
-            segments: fresh_segments,
-            resumed: false,
-        });
+        return Ok(None);
     };
 
     if sidecar.version != 2
         || sidecar.file_id != remote_file.file_id
-        || sidecar.expected != expected
         || sidecar.key_used != options.key.is_some()
-        || !segments_match(&sidecar.segments, &fresh_segments)
         || !normalize_segments(&mut sidecar.segments)
     {
         warn!(
             "existing .part sidecar cannot be used for this segmented download; restarting from zero"
         );
-        return Ok(SegmentResumePlan {
-            part_path,
-            sidecar_path,
-            segments: fresh_segments,
-            resumed: false,
-        });
+        return Ok(None);
     }
 
     let resumed = sidecar
         .segments
         .iter()
         .any(|segment| segment.done || segment.downloaded > 0);
-    Ok(SegmentResumePlan {
+    Ok(Some(SegmentResumePlan {
         part_path,
         sidecar_path,
+        expected: sidecar.expected,
         segments: sidecar.segments,
         resumed,
-    })
+    }))
 }
 
-fn build_segments(expected: u64, requested_threads: u8) -> Vec<SegmentState> {
-    let count = u64::from(requested_threads).min(expected).max(1);
-    let base = expected / count;
-    let remainder = expected % count;
-    let mut start = 0;
-    let mut segments = Vec::with_capacity(count as usize);
-    for index in 0..count {
+fn build_segments_from_initial(
+    expected: u64,
+    requested_threads: u8,
+    initial_end: u64,
+) -> Vec<SegmentState> {
+    let first_end = initial_end.min(expected.saturating_sub(1));
+    let mut segments = vec![SegmentState {
+        start: 0,
+        end: first_end,
+        done: false,
+        downloaded: 0,
+    }];
+    let mut start = first_end + 1;
+    if start >= expected {
+        return segments;
+    }
+
+    let remaining_threads = u64::from(requested_threads)
+        .saturating_sub(1)
+        .min(expected - start)
+        .max(1);
+    let remaining = expected - start;
+    let base = remaining / remaining_threads;
+    let remainder = remaining % remaining_threads;
+    for index in 0..remaining_threads {
         let len = base + u64::from(index < remainder);
         let end = start + len - 1;
         segments.push(SegmentState {
@@ -1059,6 +1329,20 @@ fn build_segments(expected: u64, requested_threads: u8) -> Vec<SegmentState> {
         start = end + 1;
     }
     segments
+}
+
+fn initial_segment_end(remote_file: &RemoteFile, requested_threads: u8) -> u64 {
+    let approx = remote_file.approx_bytes.unwrap_or(1);
+    let segment_len = (approx / u64::from(requested_threads)).max(1);
+    segment_len - 1
+}
+
+fn first_incomplete_segment(segments: &[SegmentState]) -> Option<(usize, SegmentState)> {
+    segments
+        .iter()
+        .enumerate()
+        .find(|(_, segment)| !segment.done && segment.downloaded < segment_len(segment))
+        .map(|(index, segment)| (index, segment.clone()))
 }
 
 fn parse_segment_sidecar(bytes: &[u8]) -> Option<SegmentSidecar> {
@@ -1082,14 +1366,6 @@ fn normalize_segments(segments: &mut [SegmentState]) -> bool {
         }
     }
     true
-}
-
-fn segments_match(existing: &[SegmentState], desired: &[SegmentState]) -> bool {
-    existing.len() == desired.len()
-        && existing
-            .iter()
-            .zip(desired)
-            .all(|(left, right)| left.start == right.start && left.end == right.end)
 }
 
 fn segment_at(
@@ -1475,6 +1751,16 @@ fn part_paths(final_path: &Path) -> Result<(PathBuf, PathBuf), GfileError> {
     let mut sidecar = final_path.to_owned();
     sidecar.set_file_name(sidecar_name);
     Ok((part, sidecar))
+}
+
+fn fresh_resume_plan(final_path: &Path) -> Result<ResumePlan, GfileError> {
+    let (part_path, sidecar_path) = part_paths(final_path)?;
+    Ok(ResumePlan {
+        part_path,
+        sidecar_path,
+        range_start: None,
+        expected: None,
+    })
 }
 
 fn header_filename_output_dir(

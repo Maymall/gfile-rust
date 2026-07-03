@@ -77,19 +77,14 @@ async fn config_download_threads_applies_and_cli_threads_overrides() {
         .and(query_param("file", FILE_ID))
         .respond_with(move |request: &Request| {
             if let Some(range) = range_header(request) {
-                responder_runs
-                    .lock()
-                    .unwrap()
-                    .last_mut()
-                    .expect("probe request should start a run")
-                    .push(range);
+                let mut runs = responder_runs.lock().unwrap();
+                if range.0 == 0 || runs.is_empty() {
+                    runs.push(Vec::new());
+                }
+                runs.last_mut().unwrap().push(range);
                 range_response(&responder_body, range.0, range.1)
             } else {
-                responder_runs.lock().unwrap().push(Vec::new());
-                ResponseTemplate::new(200)
-                    .insert_header("Content-Length", responder_body.len().to_string())
-                    .insert_header("Content-Type", "application/octet-stream")
-                    .set_body_bytes(responder_body.clone())
+                ResponseTemplate::new(500)
             }
         })
         .mount(&server)

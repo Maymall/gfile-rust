@@ -17,9 +17,9 @@ upload and download files straight from the terminal.
   is renamed into place only after the full body is verified against the
   server-reported size). Use `--no-resume` to always start from zero.
 - **Optional segmented downloads** — downloads use one connection by default.
-  Use `--threads N` (1-16) to split a known-size file into HTTP Range segments;
-  if the server rejects segmented Range requests, `rgfile` falls back to a
-  single-connection download.
+  `--threads N` (1-16) is an experimental segmented Range attempt with
+  automatic single-connection fallback; live GigaFile currently declines
+  parallel ranged downloads.
 - **Correct filenames** — real names are decoded from `Content-Disposition`,
   including RFC 5987 `filename*=` values, so UTF-8 and Japanese names survive
   intact even when the page masks the displayed name.
@@ -290,9 +290,10 @@ credential exposure risk.
 - **Conservative by default.** Downloads use one connection unless you pass
   `--threads` or set `download.threads`. A matomete page is still processed one
   file at a time; each file may use segmented Range requests up to the configured
-  per-file limit. If segmented Range behavior is not supported by the server,
-  the file is retried once through the single-connection path. For a matomete
-  page, a failing file does not stop the others; the process exit code is the
+  per-file limit. `--threads` is experimental: live GigaFile currently declines
+  parallel ranged downloads, and a first HTTP 200 Range response is consumed
+  directly as a single-connection download without an extra fallback GET. For a
+  matomete page, a failing file does not stop the others; the process exit code is the
   first failure encountered.
 - **Uploads stay sequential.** Upload chunks are processed one at a time to keep
   memory use and service load predictable.

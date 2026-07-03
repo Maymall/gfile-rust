@@ -295,7 +295,9 @@ async fn download_threads_four_ranges_and_matches_sha256() {
     let body = binary_body(64 * 1024 + 7);
     let expected_hash = sha256_hex(&body);
     let observed_ranges = Arc::new(Mutex::new(Vec::new()));
+    let non_range_requests = Arc::new(AtomicUsize::new(0));
     let responder_ranges = Arc::clone(&observed_ranges);
+    let responder_non_ranges = Arc::clone(&non_range_requests);
     let responder_body = body.clone();
     Mock::given(method("GET"))
         .and(path("/download.php"))
@@ -305,10 +307,8 @@ async fn download_threads_four_ranges_and_matches_sha256() {
                 responder_ranges.lock().unwrap().push((start, end));
                 range_response(&responder_body, start, end)
             } else {
-                ResponseTemplate::new(200)
-                    .insert_header("Content-Length", responder_body.len().to_string())
-                    .insert_header("Content-Type", "application/octet-stream")
-                    .set_body_bytes(responder_body.clone())
+                responder_non_ranges.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(500)
             }
         })
         .mount(&server)
@@ -326,7 +326,58 @@ async fn download_threads_four_ranges_and_matches_sha256() {
     assert_eq!(sha256_hex(&downloaded), expected_hash);
     let mut ranges = observed_ranges.lock().unwrap().clone();
     ranges.sort_unstable();
-    assert_eq!(ranges, expected_ranges(body.len() as u64, 4));
+    assert_eq!(
+        ranges,
+        expected_ranges_after_initial(body.len() as u64, 4, 2559)
+    );
+    assert_eq!(non_range_requests.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn download_threads_uses_content_disposition_from_first_206() {
+    let server = MockServer::start().await;
+    mount_page(&server, include_str!("fixtures/single_masked.html")).await;
+    let body = binary_body(4096);
+    let responder_body = body.clone();
+    Mock::given(method("GET"))
+        .and(path("/download.php"))
+        .and(query_param("file", FILE_ID))
+        .respond_with(move |request: &Request| {
+            if let Some((start, end)) = range_header(request) {
+                let mut response = range_response(&responder_body, start, end);
+                if start == 0 {
+                    response = response.insert_header(
+                        "Content-Disposition",
+                        "attachment; filename*=UTF-8''%E3%83%86%E3%82%B9%E3%83%88%E8%B3%87%E6%96%99_2026.bin",
+                    );
+                }
+                response
+            } else {
+                ResponseTemplate::new(500)
+            }
+        })
+        .mount(&server)
+        .await;
+    let temp = TempDir::new().unwrap();
+    let mut opts = options(&server, &temp, 0);
+    opts.threads = 4;
+
+    let report = download(opts).await.unwrap();
+    let outcome = only_file(&report);
+
+    assert_eq!(outcome.name.as_bytes(), "テスト資料_2026.bin".as_bytes());
+    assert_eq!(
+        outcome
+            .path
+            .as_ref()
+            .unwrap()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .as_bytes(),
+        "テスト資料_2026.bin".as_bytes()
+    );
+    assert_eq!(std::fs::read(outcome.path.as_ref().unwrap()).unwrap(), body);
 }
 
 #[tokio::test]
@@ -373,9 +424,7 @@ async fn download_threads_falls_back_when_range_returns_200() {
     mount_page(&server, include_str!("fixtures/single_basic.html")).await;
     let body = binary_body(16 * 1024);
     let range_requests = Arc::new(AtomicUsize::new(0));
-    let non_range_requests = Arc::new(AtomicUsize::new(0));
     let responder_ranges = Arc::clone(&range_requests);
-    let responder_non_ranges = Arc::clone(&non_range_requests);
     let responder_body = body.clone();
     Mock::given(method("GET"))
         .and(path("/download.php"))
@@ -383,8 +432,6 @@ async fn download_threads_falls_back_when_range_returns_200() {
         .respond_with(move |request: &Request| {
             if range_header(request).is_some() {
                 responder_ranges.fetch_add(1, Ordering::SeqCst);
-            } else {
-                responder_non_ranges.fetch_add(1, Ordering::SeqCst);
             }
             ResponseTemplate::new(200)
                 .insert_header("Content-Length", responder_body.len().to_string())
@@ -402,8 +449,7 @@ async fn download_threads_falls_back_when_range_returns_200() {
 
     assert_eq!(std::fs::read(outcome.path.as_ref().unwrap()).unwrap(), body);
     assert_eq!(outcome.threads, Some(1));
-    assert!(range_requests.load(Ordering::SeqCst) >= 1);
-    assert_eq!(non_range_requests.load(Ordering::SeqCst), 2);
+    assert_eq!(range_requests.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
@@ -438,7 +484,9 @@ async fn download_threads_resumes_v2_sidecar_segments() {
         ],
     );
     let observed_ranges = Arc::new(Mutex::new(Vec::new()));
+    let non_range_requests = Arc::new(AtomicUsize::new(0));
     let responder_ranges = Arc::clone(&observed_ranges);
+    let responder_non_ranges = Arc::clone(&non_range_requests);
     let responder_body = body.clone();
     Mock::given(method("GET"))
         .and(path("/download.php"))
@@ -448,10 +496,8 @@ async fn download_threads_resumes_v2_sidecar_segments() {
                 responder_ranges.lock().unwrap().push((start, end));
                 range_response(&responder_body, start, end)
             } else {
-                ResponseTemplate::new(200)
-                    .insert_header("Content-Length", responder_body.len().to_string())
-                    .insert_header("Content-Type", "application/octet-stream")
-                    .set_body_bytes(responder_body.clone())
+                responder_non_ranges.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(500)
             }
         })
         .mount(&server)
@@ -470,6 +516,78 @@ async fn download_threads_resumes_v2_sidecar_segments() {
         observed,
         vec![(ranges[1].0 + partial, ranges[1].1), ranges[2], ranges[3],]
     );
+    assert_eq!(non_range_requests.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn download_threads_resume_200_consumes_once_and_clears_segments() {
+    let server = MockServer::start().await;
+    mount_page(&server, include_str!("fixtures/single_basic.html")).await;
+    let body = binary_body(16 * 1024);
+    let ranges = expected_ranges(body.len() as u64, 4);
+    let partial = 512_u64;
+    let temp = TempDir::new().unwrap();
+    let final_path = temp.path().join("example file.bin");
+    let part_path = temp.path().join("example file.bin.part");
+    let sidecar_path = temp.path().join("example file.bin.part.json");
+    std::fs::write(&part_path, vec![0_u8; body.len()]).unwrap();
+    write_body_range(&part_path, &body, ranges[0].0, ranges[0].1).unwrap();
+    write_body_range(&part_path, &body, ranges[1].0, ranges[1].0 + partial - 1).unwrap();
+    write_segment_sidecar(
+        &sidecar_path,
+        FILE_ID,
+        body.len() as u64,
+        false,
+        &[
+            (
+                ranges[0].0,
+                ranges[0].1,
+                true,
+                ranges[0].1 - ranges[0].0 + 1,
+            ),
+            (ranges[1].0, ranges[1].1, false, partial),
+            (ranges[2].0, ranges[2].1, false, 0),
+            (ranges[3].0, ranges[3].1, false, 0),
+        ],
+    );
+    let observed_ranges = Arc::new(Mutex::new(Vec::new()));
+    let non_range_requests = Arc::new(AtomicUsize::new(0));
+    let responder_ranges = Arc::clone(&observed_ranges);
+    let responder_non_ranges = Arc::clone(&non_range_requests);
+    let responder_body = body.clone();
+    Mock::given(method("GET"))
+        .and(path("/download.php"))
+        .and(query_param("file", FILE_ID))
+        .respond_with(move |request: &Request| {
+            if let Some(range) = range_header(request) {
+                responder_ranges.lock().unwrap().push(range);
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Length", responder_body.len().to_string())
+                    .insert_header("Content-Type", "application/octet-stream")
+                    .set_body_bytes(responder_body.clone())
+            } else {
+                responder_non_ranges.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(500)
+            }
+        })
+        .mount(&server)
+        .await;
+    let mut opts = options(&server, &temp, 0);
+    opts.threads = 4;
+
+    let report = download(opts).await.unwrap();
+    let outcome = only_file(&report);
+
+    assert_eq!(std::fs::read(&final_path).unwrap(), body);
+    assert!(!part_path.exists());
+    assert!(!sidecar_path.exists());
+    assert!(!outcome.resumed);
+    assert_eq!(outcome.threads, Some(1));
+    assert_eq!(
+        observed_ranges.lock().unwrap().as_slice(),
+        &[(ranges[1].0 + partial, ranges[1].1)]
+    );
+    assert_eq!(non_range_requests.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -484,7 +602,9 @@ async fn download_threads_discards_v1_sidecar_and_restarts_segmented() {
     std::fs::write(&part_path, b"old").unwrap();
     write_sidecar(&sidecar_path, FILE_ID, Some(body.len() as u64), false);
     let observed_ranges = Arc::new(Mutex::new(Vec::new()));
+    let non_range_requests = Arc::new(AtomicUsize::new(0));
     let responder_ranges = Arc::clone(&observed_ranges);
+    let responder_non_ranges = Arc::clone(&non_range_requests);
     let responder_body = body.clone();
     Mock::given(method("GET"))
         .and(path("/download.php"))
@@ -494,10 +614,8 @@ async fn download_threads_discards_v1_sidecar_and_restarts_segmented() {
                 responder_ranges.lock().unwrap().push((start, end));
                 range_response(&responder_body, start, end)
             } else {
-                ResponseTemplate::new(200)
-                    .insert_header("Content-Length", responder_body.len().to_string())
-                    .insert_header("Content-Type", "application/octet-stream")
-                    .set_body_bytes(responder_body.clone())
+                responder_non_ranges.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(500)
             }
         })
         .mount(&server)
@@ -512,7 +630,11 @@ async fn download_threads_discards_v1_sidecar_and_restarts_segmented() {
     assert_eq!(std::fs::read(&final_path).unwrap(), body);
     let mut ranges = observed_ranges.lock().unwrap().clone();
     ranges.sort_unstable();
-    assert_eq!(ranges, expected_ranges(body.len() as u64, 4));
+    assert_eq!(
+        ranges,
+        expected_ranges_after_initial(body.len() as u64, 4, 2559)
+    );
+    assert_eq!(non_range_requests.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -545,7 +667,9 @@ async fn download_no_resume_clears_v2_segment_progress() {
         ],
     );
     let observed_ranges = Arc::new(Mutex::new(Vec::new()));
+    let non_range_requests = Arc::new(AtomicUsize::new(0));
     let responder_ranges = Arc::clone(&observed_ranges);
+    let responder_non_ranges = Arc::clone(&non_range_requests);
     let responder_body = body.clone();
     Mock::given(method("GET"))
         .and(path("/download.php"))
@@ -555,10 +679,8 @@ async fn download_no_resume_clears_v2_segment_progress() {
                 responder_ranges.lock().unwrap().push((start, end));
                 range_response(&responder_body, start, end)
             } else {
-                ResponseTemplate::new(200)
-                    .insert_header("Content-Length", responder_body.len().to_string())
-                    .insert_header("Content-Type", "application/octet-stream")
-                    .set_body_bytes(responder_body.clone())
+                responder_non_ranges.fetch_add(1, Ordering::SeqCst);
+                ResponseTemplate::new(500)
             }
         })
         .mount(&server)
@@ -574,7 +696,11 @@ async fn download_no_resume_clears_v2_segment_progress() {
     assert_eq!(std::fs::read(&final_path).unwrap(), body);
     let mut observed = observed_ranges.lock().unwrap().clone();
     observed.sort_unstable();
-    assert_eq!(observed, ranges);
+    assert_eq!(
+        observed,
+        expected_ranges_after_initial(body.len() as u64, 4, 2559)
+    );
+    assert_eq!(non_range_requests.load(Ordering::SeqCst), 0);
 }
 
 #[tokio::test]
@@ -616,7 +742,7 @@ async fn download_threads_send_dlkey_on_every_segment() {
     let outcome = only_file(&report);
 
     assert_eq!(std::fs::read(outcome.path.as_ref().unwrap()).unwrap(), body);
-    assert_eq!(keyed_download_requests.load(Ordering::SeqCst), 5);
+    assert_eq!(keyed_download_requests.load(Ordering::SeqCst), 4);
 }
 
 #[tokio::test]
@@ -984,6 +1110,26 @@ fn expected_ranges(len: u64, threads: u8) -> Vec<(u64, u64)> {
     let mut start = 0;
     let mut ranges = Vec::new();
     for index in 0..count {
+        let segment_len = base + if index < remainder { 1 } else { 0 };
+        let end = start + segment_len - 1;
+        ranges.push((start, end));
+        start = end + 1;
+    }
+    ranges
+}
+
+fn expected_ranges_after_initial(len: u64, threads: u8, initial_end: u64) -> Vec<(u64, u64)> {
+    let first_end = initial_end.min(len - 1);
+    let mut ranges = vec![(0, first_end)];
+    let mut start = first_end + 1;
+    if start >= len {
+        return ranges;
+    }
+    let remaining_threads = u64::from(threads).saturating_sub(1).min(len - start).max(1);
+    let remaining = len - start;
+    let base = remaining / remaining_threads;
+    let remainder = remaining % remaining_threads;
+    for index in 0..remaining_threads {
         let segment_len = base + if index < remainder { 1 } else { 0 };
         let end = start + segment_len - 1;
         ranges.push((start, end));

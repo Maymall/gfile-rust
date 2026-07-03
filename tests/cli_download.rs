@@ -284,7 +284,7 @@ async fn cli_download_threads_do_not_log_dlkey() {
         .stderr(predicate::str::contains("EXAMPLE-KEY-0000").not())
         .stderr(predicate::str::contains("dlkey=EXAMPLE-KEY-0000").not());
 
-    assert_eq!(keyed_requests.load(Ordering::SeqCst), 5);
+    assert_eq!(keyed_requests.load(Ordering::SeqCst), 4);
 }
 
 async fn mount_page(server: &MockServer, body: &'static str) {
