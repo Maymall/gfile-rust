@@ -1,4 +1,4 @@
-<!-- anonymized fixture, fabricated data, based on upstream parser structure observed 2026-07-03 -->
+<!-- anonymized fixture, fabricated data, based on page structure observed 2026-07-03 -->
 <!doctype html>
 <html lang="ja">
   <head>
@@ -6,11 +6,26 @@
     <title>GigaFile fixture</title>
   </head>
   <body>
-    <main>
-      <form id="dlkey_form">
-        <label>Download key password</label>
-        <input name="dlkey" type="password">
-      </form>
-    </main>
+    <div class="download_panel_main def_padding">
+      <p id="unsafe_contents_caution" style="display:none;">
+        ファイル名にセンシティブな内容が含まれているため一部置換されました
+        <span>※DLしたファイルは、原題まま表示されます。</span>
+      </p>
+      <p class="download_panel_main_txt">以下のファイルがダウンロード可能です。</p>
+      <p>
+        <span id="dl" class="download_file_caption" onclick="download('0123abcd-000000example', true, false);">
+          example file.bin
+        </span>
+      </p>
+      <div class="download_panel_btn">
+        <span class="download_panel_dl_caution">ダウンロードキー</span>
+        <input type="text" id="dlkey" maxlength="4">
+        <button class="download_panel_btn_dl gfbtn" onclick="download('0123abcd-000000example', true, false);">ダウンロード開始</button>
+      </div>
+    </div>
+    <div class="download_panel_main def_padding">
+      <p class="download_panel_caution">ファイルサイズ&nbsp;<span class="dl_size">10KB</span></p>
+      <p id="av_status" class="download_panel_caution">ウイルスチェック中です。</p>
+    </div>
   </body>
 </html>

@@ -443,6 +443,10 @@ async fn download_matomete_continues_after_failure_and_keeps_serial_order() {
             ResponseTemplate::new(200)
                 .insert_header("Content-Length", "5")
                 .insert_header("Content-Type", "application/octet-stream")
+                .insert_header(
+                    "Content-Disposition",
+                    "attachment; filename*=UTF-8''example%20file.bin",
+                )
                 .set_body_bytes(b"first".to_vec())
         })
         .mount(&server)
@@ -470,7 +474,7 @@ async fn download_matomete_continues_after_failure_and_keeps_serial_order() {
         std::fs::read(temp.path().join("example file.bin")).unwrap(),
         b"first"
     );
-    assert!(!temp.path().join("example second.bin").exists());
+    assert!(!temp.path().join("______.bin").exists());
     assert_eq!(order.load(Ordering::SeqCst), 2);
 }
 

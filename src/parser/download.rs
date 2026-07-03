@@ -56,13 +56,6 @@ pub fn classify_page(html: &str, status: u16) -> PageState {
     }
 
     let document = Html::parse_document(html);
-    if has_selector(&document, FILE_NAME_SELECTOR).unwrap_or(false)
-        || has_selector(&document, SIZE_SELECTOR).unwrap_or(false)
-        || has_selector(&document, MATOMETE_SELECTOR).unwrap_or(false)
-    {
-        return PageState::Ok;
-    }
-
     let lower = html.to_ascii_lowercase();
     let contains_japanese_password =
         html.contains("パスワード") || html.contains("ダウンロードキー");
@@ -74,8 +67,20 @@ pub fn classify_page(html: &str, status: u16) -> PageState {
         || lower.contains("password is wrong")
         || html.contains("パスワードが違")
         || html.contains("キーが違")
+        || html.contains("ダウンロードキーが異なります")
     {
         return PageState::WrongKey;
+    }
+
+    if has_selector(&document, "#dlkey").unwrap_or(false) {
+        return PageState::NeedsKey;
+    }
+
+    if has_selector(&document, FILE_NAME_SELECTOR).unwrap_or(false)
+        || has_selector(&document, SIZE_SELECTOR).unwrap_or(false)
+        || has_selector(&document, MATOMETE_SELECTOR).unwrap_or(false)
+    {
+        return PageState::Ok;
     }
 
     if lower.contains("password")
@@ -86,6 +91,8 @@ pub fn classify_page(html: &str, status: u16) -> PageState {
         return PageState::NeedsKey;
     }
 
+    // Expired and dangerous-file pages have not been safely reproduced in live
+    // testing yet; keep the existing conservative text markers as fallback.
     if lower.contains("not found")
         || lower.contains("expired")
         || lower.contains("blocked")

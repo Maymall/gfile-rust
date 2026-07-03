@@ -83,7 +83,21 @@ async fn snapshot_json_single_success() {
 async fn snapshot_json_matomete_partial_failure() {
     let server = MockServer::start().await;
     mount_page(&server, include_str!("fixtures/matomete_two_files.html")).await;
-    mount_file(&server, FILE_ID, b"first".to_vec(), 5, 200).await;
+    Mock::given(method("GET"))
+        .and(path("/download.php"))
+        .and(query_param("file", FILE_ID))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Content-Length", "5")
+                .insert_header("Content-Type", "application/octet-stream")
+                .insert_header(
+                    "Content-Disposition",
+                    "attachment; filename*=UTF-8''example%20file.bin",
+                )
+                .set_body_bytes(b"first".to_vec()),
+        )
+        .mount(&server)
+        .await;
     mount_file(&server, "0123abcd-000000example-2", Vec::new(), 0, 503).await;
     let temp = TempDir::new().unwrap();
 

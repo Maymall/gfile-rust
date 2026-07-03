@@ -40,10 +40,10 @@ fn parse_matomete_two_files_fixture_extracts_files() {
     assert_eq!(page.kind, PageKind::Matomete);
     assert_eq!(page.files.len(), 2);
     assert_eq!(page.files[0].file_id, FILE_ID);
-    assert_eq!(page.files[0].raw_name, "example file.bin");
+    assert_eq!(page.files[0].raw_name, "******.bin");
     assert_eq!(page.files[0].display_size.as_deref(), Some("10KB"));
     assert_eq!(page.files[1].file_id, "0123abcd-000000example-2");
-    assert_eq!(page.files[1].raw_name, "example second.bin");
+    assert_eq!(page.files[1].raw_name, "******.bin");
     assert_eq!(page.files[1].approx_bytes, Some(20 * 1024));
 }
 
