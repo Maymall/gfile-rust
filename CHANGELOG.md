@@ -7,6 +7,16 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-03
+
+### Fixed
+
+- Show the resolved real filename in the download progress bar instead of the page's masked display name.
+
+### Changed
+
+- Document the `~/.cargo/bin` PATH requirement for `cargo install` in the README.
+
 ## [0.5.0] - 2026-07-03
 
 ### Added

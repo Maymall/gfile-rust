@@ -43,6 +43,10 @@ cargo install rgfile                 # crates.io, needs Rust 1.85+
 brew install Maymall/tap/rgfile      # Homebrew (macOS / Linux)
 ```
 
+`cargo install` places the binary in `~/.cargo/bin`; if your shell can't find
+`rgfile` afterwards, add `export PATH="$HOME/.cargo/bin:$PATH"` to your shell
+profile.
+
 Debian / Ubuntu: download `rgfile_<version>_amd64.deb` from the
 [latest release](https://github.com/Maymall/gigafile-rust-cli/releases/latest)
 and `sudo apt install ./rgfile_<version>_amd64.deb`. Release archives for all

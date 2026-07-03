@@ -587,7 +587,7 @@ async fn consume_download_response_sequential(
     let progress = ByteProgress::new(
         transfer.expected_total,
         options.quiet,
-        &remote_file.raw_name,
+        &progress_label(&target_path, &remote_file.raw_name),
     );
     if transfer.initial_bytes > 0 {
         progress.inc(transfer.initial_bytes);
@@ -1040,7 +1040,11 @@ async fn try_download_file_segmented(
         .iter()
         .map(segment_completed_bytes)
         .sum();
-    let progress = ByteProgress::new(Some(expected), options.quiet, &remote_file.raw_name);
+    let progress = ByteProgress::new(
+        Some(expected),
+        options.quiet,
+        &progress_label(final_path, &remote_file.raw_name),
+    );
     if initial_bytes > 0 {
         progress.inc(initial_bytes);
     }
@@ -1866,6 +1870,16 @@ fn fresh_resume_plan(final_path: &Path) -> Result<ResumePlan, GfileError> {
     })
 }
 
+// The page display name can be a server-side mask (e.g. `******.ext`); the
+// resolved target path already carries the Content-Disposition name, so the
+// progress bar must label with the target, not the page name.
+fn progress_label(target_path: &Path, fallback: &str) -> String {
+    target_path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| fallback.to_owned())
+}
+
 fn header_filename_output_dir(
     final_path: &Path,
     output: Option<&Path>,
@@ -2089,4 +2103,24 @@ fn io_error(source: io::Error, path: &Path, op: IoOp) -> GfileError {
 
 fn boxed(error: impl std::error::Error + Send + Sync + 'static) -> BoxError {
     Box::new(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_label_prefers_resolved_target_name_over_page_name() {
+        let target = Path::new("/downloads/実際のファイル名.mmts");
+
+        assert_eq!(
+            progress_label(target, "******.mmts"),
+            "実際のファイル名.mmts"
+        );
+    }
+
+    #[test]
+    fn progress_label_falls_back_to_page_name_without_file_name() {
+        assert_eq!(progress_label(Path::new("/"), "******.mmts"), "******.mmts");
+    }
 }
