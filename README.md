@@ -1,8 +1,41 @@
 # gfile-rust
 
+[![CI](https://github.com/Maymall/gfile-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/Maymall/gfile-rust/actions/workflows/ci.yml)
+[![Release](https://github.com/Maymall/gfile-rust/actions/workflows/release.yml/badge.svg)](https://github.com/Maymall/gfile-rust/actions/workflows/release.yml)
+[![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
+
 `gfile-rust` is a Rust command line tool for automating public GigaFile web
-upload and download flows. Download support is implemented for single-file and
-matomete pages; upload support is implemented for single-file uploads.
+upload and download flows. Download support covers single-file and matomete
+pages; upload support covers single-file uploads.
+
+## Install
+
+### Download a Release
+
+Download the archive for your platform from
+[GitHub Releases](https://github.com/Maymall/gfile-rust/releases), then verify
+it with `SHA256SUMS`:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+Archives contain the `gfile` binary plus `LICENSE`, `NOTICE`, `NOTICE.md`, and
+`README.md`.
+
+| Platform | Target | Archive |
+|---|---|---|
+| Linux x86_64 glibc | `x86_64-unknown-linux-gnu` | `.tar.gz` |
+| Linux x86_64 musl | `x86_64-unknown-linux-musl` | `.tar.gz` |
+| macOS Apple Silicon | `aarch64-apple-darwin` | `.tar.gz` |
+| macOS Intel | `x86_64-apple-darwin` | `.tar.gz` |
+| Windows x86_64 | `x86_64-pc-windows-msvc` | `.zip` |
+
+### Install from Source
+
+```bash
+cargo install --git https://github.com/Maymall/gfile-rust --tag v0.3.0
+```
 
 ## Upload Usage
 
@@ -25,6 +58,10 @@ Uploads are split into serial multipart chunks. The default chunk size is
 ```bash
 gfile upload ./example-file.bin --chunk-size 50M
 ```
+
+`--timeout` is an idle timeout. During upload, it is measured from the last body
+stream progress or response completion activity, not from the total chunk
+duration.
 
 After upload, `gfile-rust` verifies the returned download page by checking the
 remote `Content-Length`. Use `--no-verify` only when the server cannot expose a
@@ -70,12 +107,19 @@ progress output:
 gfile download --json https://23.gigafile.nu/0123abcd-000000example
 ```
 
-Matomete pages are downloaded sequentially. If one file fails, later files are
-still attempted and the final process exit code is the first failure code.
+## Behavior
 
-When GigaFile's page masks the displayed filename, `gfile-rust` prefers the
-`Content-Disposition` filename from the actual file response, including UTF-8
-`filename*=` values.
+- Downloads retry retryable network failures and HTTP 5xx responses.
+- Download `--timeout` is a per-read stall timeout.
+- Uploads retry retryable network failures and HTTP 5xx chunk responses.
+- Upload `--timeout` is an idle timeout while sending a chunk or waiting for the
+  chunk response.
+- Matomete pages are downloaded sequentially. If one file fails, later files are
+  still attempted and the final process exit code is the first failure code.
+- Uploads are intentionally serial and stream chunks from disk.
+- When GigaFile's page masks the displayed filename, `gfile-rust` prefers the
+  `Content-Disposition` filename from the actual file response, including UTF-8
+  `filename*=` values.
 
 ## From Python gfile
 
@@ -83,7 +127,8 @@ When GigaFile's page masks the displayed filename, `gfile-rust` prefers the
 |---|---|---|
 | `gfile upload FILE` | `gfile upload FILE` | Uploads are intentionally serial and stream chunks from disk. |
 | fixed upload lifetime | `--lifetime <DAYS>` | Accepted values: 3, 5, 7, 14, 30, 60, 100. |
-| upload progress | upload progress | Progress advances after each confirmed chunk. |
+| upload progress | upload progress | Progress advances while streaming each chunk and is reset on retry until the chunk is confirmed. |
+| upload timeout | `--timeout <SECONDS>` | Idle timeout, not total chunk duration. |
 | `gfile download URL` | `gfile download URL` | Same basic download shape. |
 | `--key` / `--password` | `--key` / `--password` / `-k` | Password value is sent as `dlkey`. |
 | output filename | `-o <PATH>` | For matomete, `-o` must be an existing directory. |
@@ -91,6 +136,23 @@ When GigaFile's page masks the displayed filename, `gfile-rust` prefers the
 | threaded upload | not implemented | This build avoids high-concurrency upload behavior. |
 | `--aria2` | not implemented | Multi-connection aria2 integration is planned only as a backlog item. |
 | JSON output | `--json` | Rust version provides a stable final JSON object. |
+
+## Exit Codes
+
+| Code | Error | Meaning |
+|---:|---|---|
+| 2 | `usage` | Invalid CLI arguments or unsupported option value. |
+| 10 | `invalid_url` | URL is not a supported public download page URL. |
+| 11 | `network` | Network request, timeout, or retry exhaustion failure. |
+| 12 | `http_status` | Unexpected non-retryable HTTP status while downloading. |
+| 13 | `parse` | Required page data could not be parsed. |
+| 14 | `not_found_or_expired` | File page reports missing or expired content. |
+| 15 | `key_required` | Download key is required but unavailable. |
+| 16 | `password_wrong` | Download key was rejected. |
+| 17 | `size_mismatch` | Downloaded size did not match the expected size. |
+| 18 | `io` | Local filesystem error. |
+| 19 | `upload_rejected` | Upload endpoint rejected the upload. |
+| 20 | `verify_failed` | Upload verification found a size mismatch. |
 
 ## Security
 
@@ -102,23 +164,21 @@ process listings such as `ps`. Prefer the interactive prompt when that matters.
 Do not publish `--dump-page` output without reviewing it; it may contain private
 filenames or page details.
 
-## License
+## GPL Compliance
 
-This project is licensed under GPL-3.0-only. See [LICENSE](LICENSE).
-
-## Attribution
-
-This project is a Rust rewrite derived from and substantially informed by
-`Sraq-Zit/gfile` and `fireattack/gfile`, both GPL-3.0 projects. The pinned
-reference commit is `4c45392d2cc99903b38653b34e1dd07706c9c65a`.
-
-See [NOTICE.md](NOTICE.md) for details.
+- License: GPL-3.0-only; see [LICENSE](LICENSE).
+- Attribution: this rewrite is derived from and substantially informed by
+  GPL-3.0 `Sraq-Zit/gfile` and `fireattack/gfile`; see [NOTICE.md](NOTICE.md).
+- Binary release archives include `LICENSE`, `NOTICE`, `NOTICE.md`, and
+  `README.md`.
+- Corresponding source for a release is the repository tag with the same name,
+  for example `v0.3.0`.
+- No additional license restrictions are imposed by the release packaging.
 
 ## Disclaimer
 
 This is an unofficial tool. Users are responsible for complying with GigaFile's
-official terms and acceptable-use rules, including
-https://gigafile.nu/privacy.php.
+official terms and acceptable-use rules.
 
 ## Behavior Boundaries
 

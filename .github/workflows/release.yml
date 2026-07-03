@@ -1,0 +1,196 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            exe: ""
+            install_musl: false
+            smoke: true
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+            exe: ""
+            install_musl: true
+            smoke: true
+          - target: aarch64-apple-darwin
+            os: macos-15
+            archive: tar.gz
+            exe: ""
+            install_musl: false
+            smoke: true
+          - target: x86_64-apple-darwin
+            os: macos-15-intel
+            archive: tar.gz
+            exe: ""
+            install_musl: false
+            smoke: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+            exe: ".exe"
+            install_musl: false
+            smoke: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl tools
+        if: matrix.install_musl
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        shell: bash
+        run: cargo build --release --target "${{ matrix.target }}"
+
+      - name: Smoke
+        if: matrix.smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="target/${{ matrix.target }}/release/gfile${{ matrix.exe }}"
+          "$bin" --version
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          target="${{ matrix.target }}"
+          name="gfile-${version}-${target}"
+          mkdir -p "dist/${name}"
+          cp "target/${target}/release/gfile${{ matrix.exe }}" "dist/${name}/"
+          cp LICENSE README.md NOTICE.md "dist/${name}/"
+          cp NOTICE.md "dist/${name}/NOTICE"
+          if [[ "${{ matrix.archive }}" == "zip" ]]; then
+            (cd dist && 7z a "${name}.zip" "${name}" >/dev/null)
+          else
+            (cd dist && tar -czf "${name}.tar.gz" "${name}")
+          fi
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download package artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Prepare checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p release-assets
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release-assets/ \;
+
+          expected=(
+            "gfile-${version}-x86_64-unknown-linux-gnu.tar.gz"
+            "gfile-${version}-x86_64-unknown-linux-musl.tar.gz"
+            "gfile-${version}-aarch64-apple-darwin.tar.gz"
+            "gfile-${version}-x86_64-apple-darwin.tar.gz"
+            "gfile-${version}-x86_64-pc-windows-msvc.zip"
+          )
+          for asset in "${expected[@]}"; do
+            test -f "release-assets/${asset}"
+          done
+
+          shopt -s nullglob
+          archives=(release-assets/*.tar.gz release-assets/*.zip)
+          if [[ "${#archives[@]}" -ne 5 ]]; then
+            find release-assets -maxdepth 1 -type f -print
+            exit 1
+          fi
+
+          (cd release-assets && sha256sum *.tar.gz *.zip > SHA256SUMS)
+          (cd release-assets && sha256sum -c SHA256SUMS)
+
+      - name: Build release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          changelog_version="${version%%-*}"
+          awk -v version="${changelog_version}" '
+            /^## \[/ {
+              if (in_section) {
+                exit
+              }
+              if (index($0, "## [" version "]") == 1) {
+                in_section = 1
+              }
+              next
+            }
+            in_section {
+              print
+            }
+          ' CHANGELOG.md > changelog-excerpt.md
+
+          {
+            echo "## ${GITHUB_REF_NAME}"
+            echo
+            if [[ -s changelog-excerpt.md ]]; then
+              cat changelog-excerpt.md
+            else
+              echo "Release candidate for v${changelog_version}."
+            fi
+            echo
+            echo "### License and Corresponding Source"
+            echo
+            echo "This binary release is distributed under GPL-3.0-only."
+            echo "Each archive includes LICENSE, NOTICE, NOTICE.md, and README.md."
+            echo "Corresponding source is the repository content at:"
+            echo "https://github.com/${GITHUB_REPOSITORY}/tree/${GITHUB_REF_NAME}"
+            echo
+            echo "See NOTICE.md for GPL attribution to the upstream gfile implementations."
+          } > RELEASE_NOTES.md
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${GITHUB_REF_NAME}" release-assets/* \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file RELEASE_NOTES.md \
+            "${args[@]}"

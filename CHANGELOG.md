@@ -7,6 +7,20 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-03
+
+### Added
+
+- Add GitHub release packaging for Linux, macOS, and Windows binaries.
+- Add release checksum generation and GitHub Release notes with GPL attribution.
+- Document release installation, migration behavior, timeout semantics, exit codes, and GPL compliance checklist.
+
+### Changed
+
+- Upload `--timeout` now measures idle activity while streaming a chunk or waiting for the response, instead of limiting the total chunk request duration.
+- Upload progress now advances while the request body is streamed and resets to confirmed bytes when a chunk retry starts.
+- Upload retry classification now uses structured retry metadata instead of matching error text.
+
 ## [0.2.0] - 2026-07-03
 
 ### Added

@@ -14,7 +14,7 @@ Options:
   -v, --verbose...               Increase logging verbosity (-v for info, -vv for debug)
       --chunk-size <CHUNK_SIZE>  Upload chunk size, for example 50M or 1G [default: 100MiB]
       --no-verify                Skip post-upload size verification
-      --timeout <TIMEOUT>        Per-request timeout in seconds [default: 60]
+      --timeout <TIMEOUT>        Idle timeout in seconds while uploading a chunk [default: 60]
       --retries <RETRIES>        Retry count for retryable network/server failures [default: 3]
       --user-agent <USER_AGENT>  Override the default User-Agent
       --dump-page <DUMP_PAGE>    Save the fetched upload landing page HTML for diagnostics

@@ -92,7 +92,7 @@ pub enum Commands {
         #[arg(long = "no-verify")]
         no_verify: bool,
 
-        /// Per-request timeout in seconds.
+        /// Idle timeout in seconds while uploading a chunk.
         #[arg(long = "timeout", default_value_t = 60)]
         timeout: u64,
 
