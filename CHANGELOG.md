@@ -7,6 +7,18 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-07-04
+
+### Fixed
+
+- Prevent concurrent downloads targeting the same file from racing over the `.part` data and sidecar by taking a nonblocking OS advisory lock.
+- Restore default Unix SIGPIPE handling so commands such as `rgfile completions bash | head` exit quietly when the pipe closes.
+- Skip GitHub Release creation when a duplicate tag workflow run finds that the release already exists.
+
+### Changed
+
+- Clarify resume restart warnings when an existing sidecar is incompatible, including the common case of changing `--threads` between attempts.
+
 ## [0.5.2] - 2026-07-04
 
 ### Fixed

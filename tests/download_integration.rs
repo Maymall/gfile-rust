@@ -55,6 +55,64 @@ async fn download_single_success_writes_final_and_cleans_part_files() {
 }
 
 #[tokio::test]
+async fn concurrent_downloads_same_target_lock_one_attempt() {
+    let server = MockServer::start().await;
+    mount_page(&server, include_str!("fixtures/single_basic.html")).await;
+    let body = binary_body(8 * 1024);
+    let response_body = body.clone();
+    Mock::given(method("GET"))
+        .and(path("/download.php"))
+        .and(query_param("file", FILE_ID))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Content-Length", response_body.len().to_string())
+                .insert_header("Content-Type", "application/octet-stream")
+                .set_body_bytes(response_body)
+                .set_delay(Duration::from_secs(1)),
+        )
+        .mount(&server)
+        .await;
+    let temp = TempDir::new().unwrap();
+    let first_options = options(&server, &temp, 0);
+    let second_options = first_options.clone();
+
+    let first = tokio::spawn(download(first_options));
+    let second = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        download(second_options).await
+    };
+    let (first, second) = tokio::join!(first, second);
+    let first = first.unwrap();
+
+    let mut successes = 0;
+    let mut locked = 0;
+    for result in [first, second] {
+        match result {
+            Ok(report) => {
+                successes += 1;
+                let outcome = only_file(&report);
+                assert_eq!(std::fs::read(outcome.path.as_ref().unwrap()).unwrap(), body);
+            }
+            Err(GfileError::TargetLocked { path }) => {
+                locked += 1;
+                assert_eq!(
+                    path.file_name().and_then(|name| name.to_str()),
+                    Some("example file.bin.part.json.lock")
+                );
+            }
+            Err(error) => panic!("unexpected error: {error:?}"),
+        }
+    }
+
+    assert_eq!(successes, 1);
+    assert_eq!(locked, 1);
+    assert_eq!(
+        std::fs::read(temp.path().join("example file.bin")).unwrap(),
+        body
+    );
+}
+
+#[tokio::test]
 async fn download_password_file_requires_key_and_sends_dlkey() {
     let server = MockServer::start().await;
     mount_page(&server, include_str!("fixtures/single_basic.html")).await;

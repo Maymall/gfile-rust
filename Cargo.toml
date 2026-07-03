@@ -1,6 +1,6 @@
 [package]
 name = "rgfile"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-only"
@@ -40,8 +40,10 @@ clap = { version = "4.5.23", features = ["derive"] }
 clap_complete = "4.5.44"
 directories = "6.0.0"
 flate2 = "1.1.2"
+fs2 = "0.4.3"
 futures-util = "0.3.31"
 indicatif = "0.17.11"
+libc = "0.2.186"
 regex = "1.11.1"
 reqwest = { version = "0.12.22", default-features = false, features = ["rustls-tls", "cookies", "stream", "gzip", "json", "multipart"] }
 rpassword = "7.4.0"

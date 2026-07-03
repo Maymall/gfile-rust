@@ -139,6 +139,7 @@ opt in with `history.store_delete_keys = true`.
 | 18 | Local filesystem error |
 | 19 | Upload rejected by the server |
 | 20 | Upload or self-update verification failed |
+| 21 | Download target is already locked by another rgfile process |
 
 ## Notes
 

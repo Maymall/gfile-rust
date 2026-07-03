@@ -2,12 +2,14 @@
 
 use std::{
     collections::BTreeSet,
+    fs::{File as StdFile, OpenOptions as StdOpenOptions},
     io::{self, IsTerminal},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+use fs2::FileExt;
 use regex::Regex;
 use reqwest::{StatusCode, header};
 use serde::{Deserialize, Serialize};
@@ -32,6 +34,7 @@ use crate::{
 pub const DEFAULT_DOWNLOAD_THREADS: u8 = 1;
 pub const MIN_DOWNLOAD_THREADS: u8 = 1;
 pub const MAX_DOWNLOAD_THREADS: u8 = 16;
+const THREADS_RESUME_HINT: &str = "This often happens when a previous attempt used a different --threads value; rerun with the same --threads to resume, or accept the restart.";
 
 #[derive(Debug, Clone)]
 pub struct DownloadOptions {
@@ -208,6 +211,47 @@ struct SegmentContext {
     timeout: Duration,
     progress: ByteProgress,
     shared_segments: Arc<Mutex<Vec<SegmentState>>>,
+}
+
+struct DownloadLock {
+    file: StdFile,
+    path: PathBuf,
+}
+
+impl DownloadLock {
+    fn acquire(final_path: &Path) -> Result<Self, GfileError> {
+        let (_, sidecar_path) = part_paths(final_path)?;
+        let lock_path = lock_path_for_sidecar(&sidecar_path)?;
+        let file = StdOpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|source| io_error(source, &lock_path, IoOp::Create))?;
+
+        match FileExt::try_lock_exclusive(&file) {
+            Ok(()) => Ok(Self {
+                file,
+                path: lock_path,
+            }),
+            Err(source) if source.kind() == io::ErrorKind::WouldBlock => {
+                Err(GfileError::TargetLocked { path: lock_path })
+            }
+            Err(source) => Err(io_error(source, &lock_path, IoOp::Write)),
+        }
+    }
+}
+
+impl Drop for DownloadLock {
+    fn drop(&mut self) {
+        if let Err(source) = FileExt::unlock(&self.file) {
+            warn!(
+                "failed to release download lock {}: {source}",
+                self.path.display()
+            );
+        }
+    }
 }
 
 pub fn validate_threads(threads: u8) -> Result<u8, GfileError> {
@@ -423,6 +467,7 @@ async fn download_file_with_retries(
     final_path: &Path,
     options: &DownloadOptions,
 ) -> Result<SingleDownloadOutcome, GfileError> {
+    let _download_lock = DownloadLock::acquire(final_path)?;
     let mut attempt = 0;
     loop {
         match try_download_file(client, download_url, remote_file, final_path, options).await {
@@ -526,18 +571,26 @@ async fn consume_download_response_sequential(
     }
 
     let header_name = content_disposition_filename(response.headers());
-    if resume.range_start.is_none() {
+    let _header_target_lock = if resume.range_start.is_none() {
         if let (Some(dir), Some(name)) = (header_output_dir.as_deref(), header_name.as_deref()) {
             let header_path = dir.join(sanitize_server_filename(name, &remote_file.file_id));
             if header_path != target_path {
                 ensure_target_available(&header_path, options.force)?;
+                let lock = DownloadLock::acquire(&header_path)?;
                 target_path = header_path;
                 let (part_path, sidecar_path) = part_paths(&target_path)?;
                 resume.part_path = part_path;
                 resume.sidecar_path = sidecar_path;
+                Some(lock)
+            } else {
+                None
             }
+        } else {
+            None
         }
-    }
+    } else {
+        None
+    };
 
     let transfer = transfer_plan(&response, &resume)?;
     if transfer.expected_total.is_none() {
@@ -767,13 +820,20 @@ async fn try_download_file_segmented_fresh(
     let header_name = content_disposition_filename(response.headers());
     let header_output_dir = header_filename_output_dir(final_path, options.output.as_deref())?;
     let mut target_path = final_path.to_owned();
-    if let (Some(dir), Some(name)) = (header_output_dir.as_deref(), header_name.as_deref()) {
-        let header_path = dir.join(sanitize_server_filename(name, &remote_file.file_id));
-        if header_path != target_path {
-            ensure_target_available(&header_path, options.force)?;
-            target_path = header_path;
-        }
-    }
+    let _header_target_lock =
+        if let (Some(dir), Some(name)) = (header_output_dir.as_deref(), header_name.as_deref()) {
+            let header_path = dir.join(sanitize_server_filename(name, &remote_file.file_id));
+            if header_path != target_path {
+                ensure_target_available(&header_path, options.force)?;
+                let lock = DownloadLock::acquire(&header_path)?;
+                target_path = header_path;
+                Some(lock)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
     let (part_path, sidecar_path) = part_paths(&target_path)?;
     let segments = build_segments_from_initial(expected, options.threads, content_range.end);
@@ -1372,7 +1432,9 @@ async fn load_existing_segmented_resume(
         Err(_) => None,
     };
     let Some(mut sidecar) = sidecar else {
-        warn!("existing segmented .part has missing or damaged v2 sidecar; restarting from zero");
+        warn!(
+            "existing segmented .part has missing or damaged v2 sidecar; restarting from zero. {THREADS_RESUME_HINT}"
+        );
         return Ok(None);
     };
 
@@ -1382,7 +1444,7 @@ async fn load_existing_segmented_resume(
         || !normalize_segments(&mut sidecar.segments)
     {
         warn!(
-            "existing .part sidecar cannot be used for this segmented download; restarting from zero"
+            "existing .part sidecar cannot be used for this segmented download; restarting from zero. {THREADS_RESUME_HINT}"
         );
         return Ok(None);
     }
@@ -1612,7 +1674,9 @@ async fn prepare_resume(
         Err(_) => None,
     };
     let Some(sidecar) = sidecar else {
-        warn!("existing .part has missing or damaged sidecar; restarting from zero");
+        warn!(
+            "existing .part has missing or damaged sidecar; restarting from zero. {THREADS_RESUME_HINT}"
+        );
         return Ok(ResumePlan {
             part_path,
             sidecar_path,
@@ -1623,7 +1687,9 @@ async fn prepare_resume(
 
     if sidecar.version != 1 || sidecar.file_id != remote_file.file_id || sidecar.expected.is_none()
     {
-        warn!("existing .part sidecar does not match this file; restarting from zero");
+        warn!(
+            "existing .part sidecar does not match this file; restarting from zero. {THREADS_RESUME_HINT}"
+        );
         return Ok(ResumePlan {
             part_path,
             sidecar_path,
@@ -1858,6 +1924,19 @@ fn part_paths(final_path: &Path) -> Result<(PathBuf, PathBuf), GfileError> {
     let mut sidecar = final_path.to_owned();
     sidecar.set_file_name(sidecar_name);
     Ok((part, sidecar))
+}
+
+fn lock_path_for_sidecar(sidecar_path: &Path) -> Result<PathBuf, GfileError> {
+    let file_name = sidecar_path.file_name().ok_or_else(|| {
+        io_error(
+            io::Error::new(io::ErrorKind::InvalidInput, "sidecar path has no filename"),
+            sidecar_path,
+            IoOp::Create,
+        )
+    })?;
+    let mut lock_path = sidecar_path.to_owned();
+    lock_path.set_file_name(format!("{}.lock", file_name.to_string_lossy()));
+    Ok(lock_path)
 }
 
 fn fresh_resume_plan(final_path: &Path) -> Result<ResumePlan, GfileError> {

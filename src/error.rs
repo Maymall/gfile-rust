@@ -52,6 +52,9 @@ pub enum GfileError {
         op: IoOp,
     },
 
+    #[error("download target is locked at {}", path.display())]
+    TargetLocked { path: PathBuf },
+
     #[error("upload rejected")]
     UploadRejected {
         detail: String,
@@ -104,6 +107,7 @@ impl GfileError {
             Self::UploadRejected { .. } => 19,
             Self::VerifyFailed { .. } => 20,
             Self::ChecksumMismatch { .. } => 20,
+            Self::TargetLocked { .. } => 21,
         }
     }
 
@@ -119,6 +123,7 @@ impl GfileError {
             Self::KeyWrong => "password_wrong",
             Self::SizeMismatch { .. } => "size_mismatch",
             Self::Io { .. } => "io",
+            Self::TargetLocked { .. } => "target_locked",
             Self::UploadRejected { .. } => "upload_rejected",
             Self::VerifyFailed { .. } => "verify_failed",
             Self::ChecksumMismatch { .. } => "verify_failed",
@@ -164,6 +169,10 @@ impl GfileError {
                 "The downloaded size did not match the server header: expected {expected} bytes, got {actual} bytes. Keep the .part file for diagnostics or retry the download."
             ),
             Self::Io { source, path, op } => io_message(source, path, *op),
+            Self::TargetLocked { path } => format!(
+                "Another rgfile process appears to be downloading this file. Wait for it to finish, or remove the lock file if that process crashed: {}",
+                path.display()
+            ),
             Self::UploadRejected { detail, .. } => format!(
                 "The upload was rejected: {}. Retry later; if it keeps failing, rerun with -vv and report the response details.",
                 sanitize_message(detail)
@@ -362,6 +371,12 @@ mod tests {
                     op: IoOp::Read,
                 },
                 18,
+            ),
+            (
+                GfileError::TargetLocked {
+                    path: PathBuf::from("example file.bin.part.json.lock"),
+                },
+                21,
             ),
             (
                 GfileError::UploadRejected {
