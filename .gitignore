@@ -17,6 +17,9 @@
 /docs/*INVESTIGATION*.md
 /docs/*PROMPT*.md
 
+# Local secrets (publish tokens, etc.) - never commit
+/.secrets/
+
 # Live-test and download artifacts
 /downloads/
 /tmp/
