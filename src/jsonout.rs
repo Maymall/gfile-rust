@@ -124,6 +124,7 @@ struct InfoReportJson<'a> {
 
 #[derive(Debug, Serialize)]
 struct InfoFileJson<'a> {
+    index: usize,
     display_name: &'a str,
     display_name_may_be_masked: bool,
     display_size: Option<&'a str>,
@@ -143,6 +144,7 @@ fn download_file_json(file: &DownloadFileRecord) -> DownloadFileJson<'_> {
 
 fn info_file_json(file: &InfoFileRecord) -> InfoFileJson<'_> {
     InfoFileJson {
+        index: file.index,
         display_name: &file.display_name,
         display_name_may_be_masked: true,
         display_size: file.display_size.as_deref(),

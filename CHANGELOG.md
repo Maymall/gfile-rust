@@ -7,6 +7,14 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-03
+
+### Added
+
+- Add `rgfile self-update` with latest-release redirect lookup, SHA-256 verification, and atomic binary replacement.
+- Add `download --select <SPEC>` for 1-based matomete file indexes and include indexes in `rgfile info` output.
+- Add `rgfile completions <shell>` for bash, zsh, fish, PowerShell, and Elvish.
+
 ## [0.4.0] - 2026-07-03
 
 ### Added

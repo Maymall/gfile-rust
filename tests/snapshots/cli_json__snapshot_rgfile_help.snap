@@ -7,11 +7,13 @@ Upload and download GigaFile public web files
 Usage: rgfile [OPTIONS] <COMMAND>
 
 Commands:
-  download  Download a file from a public GigaFile page
-  info      Show metadata for a public GigaFile page without downloading files
-  upload    Upload a local file
-  history   Inspect or clear local history
-  help      Print this message or the help of the given subcommand(s)
+  download     Download a file from a public GigaFile page
+  info         Show metadata for a public GigaFile page without downloading files
+  upload       Upload a local file
+  history      Inspect or clear local history
+  self-update  Update this rgfile binary from the latest GitHub Release
+  completions  Generate shell completion scripts
+  help         Print this message or the help of the given subcommand(s)
 
 Options:
   -h, --help     Print help

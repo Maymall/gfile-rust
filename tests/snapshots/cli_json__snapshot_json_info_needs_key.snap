@@ -8,7 +8,8 @@ expression: normalize_json(&output.stdout)
       "approx_bytes": 10240,
       "display_name": "example file.bin",
       "display_name_may_be_masked": true,
-      "display_size": "10KB"
+      "display_size": "10KB",
+      "index": 1
     }
   ],
   "key_required": true,

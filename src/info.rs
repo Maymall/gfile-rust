@@ -31,6 +31,7 @@ pub struct InfoReport {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InfoFileRecord {
+    pub index: usize,
     pub display_name: String,
     pub display_size: Option<String>,
     pub approx_bytes: Option<u64>,
@@ -102,7 +103,9 @@ pub fn report_from_html(
         files: page
             .files
             .into_iter()
-            .map(|file| InfoFileRecord {
+            .enumerate()
+            .map(|(offset, file)| InfoFileRecord {
+                index: offset + 1,
                 display_name: file.raw_name,
                 display_size: file.display_size,
                 approx_bytes: file.approx_bytes,
@@ -135,6 +138,7 @@ mod tests {
 
         assert_eq!(report.kind, PageKind::Single);
         assert!(!report.key_required);
+        assert_eq!(report.files[0].index, 1);
         assert_eq!(report.files[0].display_name, "example file.bin");
         assert_eq!(report.files[0].display_size.as_deref(), Some("10KB"));
     }
@@ -163,6 +167,8 @@ mod tests {
 
         assert_eq!(report.kind, PageKind::Matomete);
         assert_eq!(report.files.len(), 2);
+        assert_eq!(report.files[0].index, 1);
+        assert_eq!(report.files[1].index, 2);
     }
 
     #[test]

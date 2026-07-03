@@ -274,6 +274,54 @@ async fn history_records_download_without_download_key() {
 }
 
 #[tokio::test]
+async fn history_records_only_selected_download_files() {
+    let server = MockServer::start().await;
+    mount_matomete_page(&server).await;
+    mount_named_file(
+        &server,
+        "0123abcd-000000example-2",
+        "selected.bin",
+        b"selected".to_vec(),
+    )
+    .await;
+    let temp = TempDir::new().unwrap();
+    let data = temp.path().join("data");
+    let output = temp.path().join("out");
+    std::fs::create_dir_all(&output).unwrap();
+    let config = write_config(&temp, "[history]\nenabled = true\n");
+
+    Command::cargo_bin("rgfile")
+        .unwrap()
+        .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
+        .env("RGFILE_TEST_DATA_DIR", &data)
+        .args(["--config"])
+        .arg(config)
+        .args([
+            "download",
+            "--select",
+            "2",
+            &format!("{}/{FILE_ID}", server.uri()),
+            "-o",
+        ])
+        .arg(&output)
+        .assert()
+        .success();
+
+    let history = std::fs::read_to_string(history_path(&data)).unwrap();
+    assert!(history.contains("selected.bin"));
+    assert!(!history.contains("example file.bin"));
+
+    let requests = server.received_requests().await.unwrap();
+    assert!(!requests.iter().any(|request| {
+        request.url.path() == "/download.php"
+            && request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "file" && value == FILE_ID)
+    }));
+}
+
+#[tokio::test]
 async fn history_write_failure_warns_without_changing_exit_code() {
     let server = MockServer::start().await;
     mount_page(&server).await;
@@ -394,6 +442,17 @@ async fn mount_page(server: &MockServer) {
         .await;
 }
 
+async fn mount_matomete_page(server: &MockServer) {
+    Mock::given(method("GET"))
+        .and(path(format!("/{FILE_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            include_str!("fixtures/matomete_two_files.html"),
+            "text/html",
+        ))
+        .mount(server)
+        .await;
+}
+
 async fn mount_page_with_user_agent(server: &MockServer, user_agent: &'static str) {
     Mock::given(method("GET"))
         .and(path(format!("/{FILE_ID}")))
@@ -444,6 +503,24 @@ async fn mount_keyed_file(server: &MockServer, body: Vec<u8>) {
             ResponseTemplate::new(200)
                 .insert_header("Content-Length", body.len().to_string())
                 .insert_header("Content-Type", "application/octet-stream")
+                .set_body_bytes(body),
+        )
+        .mount(server)
+        .await;
+}
+
+async fn mount_named_file(server: &MockServer, file_id: &str, name: &str, body: Vec<u8>) {
+    Mock::given(method("GET"))
+        .and(path("/download.php"))
+        .and(query_param("file", file_id))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Content-Length", body.len().to_string())
+                .insert_header("Content-Type", "application/octet-stream")
+                .insert_header(
+                    "Content-Disposition",
+                    format!("attachment; filename*=UTF-8''{name}"),
+                )
                 .set_body_bytes(body),
         )
         .mount(server)

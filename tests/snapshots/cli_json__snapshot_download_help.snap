@@ -12,6 +12,7 @@ Arguments:
 Options:
   -o, --output <OUTPUT>          Output directory or explicit output file path
   -k, --key <KEY>                Download key [aliases: --password]
+      --select <SPEC>            Select files by 1-based index list/ranges, for example 1,3-5
       --force                    Overwrite the final output file if it already exists
       --no-resume                Ignore an existing .part file and start from zero
       --threads <THREADS>        Number of download connections for each file (1-16)

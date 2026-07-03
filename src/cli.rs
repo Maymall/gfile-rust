@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::{
-    env,
+    env, io,
     path::{Path, PathBuf},
     time::Duration,
 };
 
-use clap::{ArgAction, Parser, Subcommand};
+use clap::{ArgAction, CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use serde::Serialize;
 use tracing_subscriber::EnvFilter;
 
@@ -14,7 +15,7 @@ use crate::{
     config, download,
     error::{GfileError, IoOp},
     history::{self, HistoryOverride, HistoryRecord},
-    info, jsonout, upload,
+    info, jsonout, self_update, upload,
 };
 
 #[derive(Debug, Parser)]
@@ -88,6 +89,10 @@ pub enum Commands {
         /// Download key.
         #[arg(short = 'k', long = "key", visible_alias = "password")]
         key: Option<String>,
+
+        /// Select files by 1-based index list/ranges, for example 1,3-5.
+        #[arg(long = "select", value_name = "SPEC")]
+        select: Option<String>,
 
         /// Overwrite the final output file if it already exists.
         #[arg(long = "force")]
@@ -200,6 +205,13 @@ pub enum Commands {
         #[command(subcommand)]
         command: HistoryCommands,
     },
+    /// Update this rgfile binary from the latest GitHub Release.
+    SelfUpdate,
+    /// Generate shell completion scripts.
+    Completions {
+        /// Shell to generate completions for.
+        shell: Shell,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -260,6 +272,7 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
             url,
             output,
             key,
+            select,
             force,
             no_resume,
             threads,
@@ -273,10 +286,15 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
             let page_url = url.clone();
             let output = resolve_download_output(&config, output)?;
             let threads = config.resolve_download_threads(threads)?;
+            let selection = select
+                .as_deref()
+                .map(download::FileSelection::parse)
+                .transpose()?;
             let result = download::download(download::DownloadOptions {
                 url,
                 output,
                 key,
+                selection,
                 force,
                 no_resume,
                 threads,
@@ -438,6 +456,35 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
                 Ok(RunOutcome::Success)
             }
         },
+        Commands::SelfUpdate => {
+            match self_update::self_update(self_update::SelfUpdateOptions {
+                base_url: self_update_base_url(),
+                force: self_update_force(),
+            })
+            .await?
+            {
+                self_update::SelfUpdateReport::AlreadyUpToDate { version } => {
+                    println!("rgfile {version} is already up to date");
+                }
+                self_update::SelfUpdateReport::Updated {
+                    old_version,
+                    new_version,
+                    target,
+                    path,
+                } => {
+                    println!(
+                        "updated rgfile {old_version} -> {new_version} ({target}) at {}",
+                        path.display()
+                    );
+                }
+            }
+            Ok(RunOutcome::Success)
+        }
+        Commands::Completions { shell } => {
+            let mut command = Cli::command();
+            clap_complete::generate(shell, &mut command, "rgfile", &mut io::stdout());
+            Ok(RunOutcome::Success)
+        }
     }
 }
 
@@ -588,7 +635,10 @@ fn print_human_info_report(report: &info::InfoReport) {
     println!("kind\t{}", page_kind_name(report.kind));
     println!("key_required\t{}", report.key_required);
     for file in &report.files {
-        println!("display_name (may be masked)\t{}", file.display_name);
+        println!(
+            "[{}]\tdisplay_name (may be masked)\t{}",
+            file.index, file.display_name
+        );
         if let Some(size) = &file.display_size {
             println!("display_size\t{size}");
         }
@@ -653,4 +703,12 @@ fn test_allow_any_host() -> bool {
 
 fn upload_entry_url() -> String {
     env::var("GFILE_TEST_ENTRY_URL").unwrap_or_else(|_| upload::default_entry_url().to_owned())
+}
+
+fn self_update_base_url() -> Option<String> {
+    env::var("RGFILE_TEST_UPDATE_BASE_URL").ok()
+}
+
+fn self_update_force() -> bool {
+    env::var("RGFILE_TEST_FORCE_UPDATE").as_deref() == Ok("1")
 }

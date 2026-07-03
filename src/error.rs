@@ -61,6 +61,9 @@ pub enum GfileError {
 
     #[error("upload verification failed: expected {expected} bytes, got {actual} bytes")]
     VerifyFailed { expected: u64, actual: u64 },
+
+    #[error("checksum verification failed")]
+    ChecksumMismatch { expected: String, actual: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +103,7 @@ impl GfileError {
             Self::Io { .. } => 18,
             Self::UploadRejected { .. } => 19,
             Self::VerifyFailed { .. } => 20,
+            Self::ChecksumMismatch { .. } => 20,
         }
     }
 
@@ -117,6 +121,7 @@ impl GfileError {
             Self::Io { .. } => "io",
             Self::UploadRejected { .. } => "upload_rejected",
             Self::VerifyFailed { .. } => "verify_failed",
+            Self::ChecksumMismatch { .. } => "verify_failed",
         }
     }
 
@@ -166,12 +171,21 @@ impl GfileError {
             Self::VerifyFailed { expected, actual } => format!(
                 "Upload verification failed: expected {expected} bytes, got {actual} bytes. Re-upload the file before sharing the link."
             ),
+            Self::ChecksumMismatch { expected, actual } => format!(
+                "Checksum verification failed: expected {expected}, got {actual}. The downloaded update was not installed."
+            ),
         }
     }
 }
 
 fn io_message(source: &io::Error, path: &std::path::Path, op: IoOp) -> String {
     if source.kind() == ErrorKind::PermissionDenied {
+        if let Some(hint) = install_hint(path) {
+            return format!(
+                "Permission was denied while trying to {op} {}. {hint}",
+                path.display()
+            );
+        }
         return format!(
             "Permission was denied while trying to {op} {}. Check the directory permissions and choose a writable destination.",
             path.display()
@@ -189,6 +203,21 @@ fn io_message(source: &io::Error, path: &std::path::Path, op: IoOp) -> String {
         "A local I/O error occurred while trying to {op} {}: {source}. Check the path and retry.",
         path.display()
     )
+}
+
+fn install_hint(path: &std::path::Path) -> Option<&'static str> {
+    let text = path.to_string_lossy();
+    if text.contains(".cargo/bin") {
+        Some("This looks like a cargo-installed binary; run `cargo install rgfile` to upgrade it.")
+    } else if text.contains("Cellar") || text.contains("linuxbrew") || text.contains("homebrew") {
+        Some("This looks like a Homebrew-managed binary; run `brew upgrade rgfile` instead.")
+    } else if text.starts_with("/usr/bin") || text.starts_with("/usr/local/bin") {
+        Some(
+            "This system directory is not writable; reinstall the .deb package or run the installer with appropriate privileges.",
+        )
+    } else {
+        None
+    }
 }
 
 fn sanitize_message(value: &str) -> String {
@@ -346,6 +375,13 @@ mod tests {
                 GfileError::VerifyFailed {
                     expected: 1024,
                     actual: 512,
+                },
+                20,
+            ),
+            (
+                GfileError::ChecksumMismatch {
+                    expected: "expected-hash".to_owned(),
+                    actual: "actual-hash".to_owned(),
                 },
                 20,
             ),

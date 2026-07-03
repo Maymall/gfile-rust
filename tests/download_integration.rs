@@ -11,7 +11,7 @@ use std::{
 };
 
 use rgfile::{
-    download::{DownloadOptions, DownloadReport, download},
+    download::{DownloadOptions, DownloadReport, FileSelection, download},
     error::GfileError,
 };
 use sha2::{Digest, Sha256};
@@ -189,6 +189,7 @@ async fn download_size_mismatch_keeps_part_file() {
         dump_page: None,
         no_resume: false,
         key: None,
+        selection: None,
         threads: 1,
         quiet: true,
         allow_any_host: true,
@@ -938,6 +939,175 @@ async fn download_matomete_continues_after_failure_and_keeps_serial_order() {
 }
 
 #[tokio::test]
+async fn download_matomete_selects_subset_only() {
+    let server = MockServer::start().await;
+    mount_page(&server, include_str!("fixtures/matomete_two_files.html")).await;
+    mount_named_file(
+        &server,
+        "0123abcd-000000example-2",
+        "selected.bin",
+        b"second".to_vec(),
+    )
+    .await;
+    let temp = TempDir::new().unwrap();
+    let mut opts = options(&server, &temp, 0);
+    opts.selection = Some(FileSelection::parse("2").unwrap());
+
+    let report = download(opts).await.unwrap();
+
+    assert_eq!(report.files.len(), 1);
+    assert_eq!(report.failed, 0);
+    assert_eq!(
+        std::fs::read(temp.path().join("selected.bin")).unwrap(),
+        b"second"
+    );
+    let requests = server.received_requests().await.unwrap();
+    assert!(!requests.iter().any(|request| {
+        request.url.path() == "/download.php"
+            && request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "file" && value == FILE_ID)
+    }));
+}
+
+#[tokio::test]
+async fn download_matomete_select_dedupes_and_keeps_page_order() {
+    let server = MockServer::start().await;
+    mount_page(&server, include_str!("fixtures/matomete_two_files.html")).await;
+    let order = Arc::new(AtomicUsize::new(0));
+    let first_order = Arc::clone(&order);
+    Mock::given(method("GET"))
+        .and(path("/download.php"))
+        .and(query_param("file", FILE_ID))
+        .respond_with(move |_request: &Request| {
+            assert_eq!(first_order.fetch_add(1, Ordering::SeqCst), 0);
+            ResponseTemplate::new(200)
+                .insert_header("Content-Length", "5")
+                .insert_header("Content-Type", "application/octet-stream")
+                .insert_header(
+                    "Content-Disposition",
+                    "attachment; filename*=UTF-8''first.bin",
+                )
+                .set_body_bytes(b"first".to_vec())
+        })
+        .mount(&server)
+        .await;
+    let second_order = Arc::clone(&order);
+    Mock::given(method("GET"))
+        .and(path("/download.php"))
+        .and(query_param("file", "0123abcd-000000example-2"))
+        .respond_with(move |_request: &Request| {
+            assert_eq!(second_order.fetch_add(1, Ordering::SeqCst), 1);
+            ResponseTemplate::new(200)
+                .insert_header("Content-Length", "6")
+                .insert_header("Content-Type", "application/octet-stream")
+                .insert_header(
+                    "Content-Disposition",
+                    "attachment; filename*=UTF-8''second.bin",
+                )
+                .set_body_bytes(b"second".to_vec())
+        })
+        .mount(&server)
+        .await;
+    let temp = TempDir::new().unwrap();
+    let mut opts = options(&server, &temp, 0);
+    opts.selection = Some(FileSelection::parse("2,1,2").unwrap());
+
+    let report = download(opts).await.unwrap();
+
+    assert_eq!(report.files.len(), 2);
+    assert_eq!(report.failed, 0);
+    assert_eq!(
+        std::fs::read(temp.path().join("first.bin")).unwrap(),
+        b"first"
+    );
+    assert_eq!(
+        std::fs::read(temp.path().join("second.bin")).unwrap(),
+        b"second"
+    );
+    assert_eq!(order.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn download_single_accepts_only_select_one() {
+    let server = MockServer::start().await;
+    mount_page(&server, include_str!("fixtures/single_basic.html")).await;
+    mount_file(&server, 200, b"one".to_vec(), Some(3), None).await;
+    let temp = TempDir::new().unwrap();
+    let mut opts = options(&server, &temp, 0);
+    opts.selection = Some(FileSelection::parse("1").unwrap());
+
+    let report = download(opts).await.unwrap();
+    assert_eq!(only_file(&report).bytes, Some(3));
+
+    let mut opts = options(&server, &temp, 0);
+    opts.selection = Some(FileSelection::parse("2").unwrap());
+    let error = download(opts).await.unwrap_err();
+    assert_eq!(error.exit_code(), 2);
+    assert!(
+        error
+            .user_message()
+            .contains("single-file pages only accept")
+    );
+    assert!(error.user_message().contains("rgfile info"));
+}
+
+#[tokio::test]
+async fn download_matomete_select_combines_with_key_and_threads() {
+    let server = MockServer::start().await;
+    mount_page(&server, include_str!("fixtures/matomete_two_files.html")).await;
+    let body = binary_body(12 * 1024);
+    let request_count = Arc::new(AtomicUsize::new(0));
+    let responder_count = Arc::clone(&request_count);
+    let responder_body = body.clone();
+    Mock::given(method("GET"))
+        .and(path("/download.php"))
+        .and(query_param("file", FILE_ID))
+        .and(query_param("dlkey", "EXAMPLE-KEY-0000"))
+        .respond_with(move |request: &Request| {
+            responder_count.fetch_add(1, Ordering::SeqCst);
+            if let Some((start, end)) = range_header(request) {
+                let mut response = range_response(&responder_body, start, end);
+                if start == 0 {
+                    response = response.insert_header(
+                        "Content-Disposition",
+                        "attachment; filename*=UTF-8''threaded.bin",
+                    );
+                }
+                response
+            } else {
+                ResponseTemplate::new(500)
+            }
+        })
+        .mount(&server)
+        .await;
+    let temp = TempDir::new().unwrap();
+    let mut opts = options(&server, &temp, 0);
+    opts.key = Some("EXAMPLE-KEY-0000".to_owned());
+    opts.selection = Some(FileSelection::parse("1").unwrap());
+    opts.threads = 4;
+
+    let report = download(opts).await.unwrap();
+
+    let outcome = only_file(&report);
+    assert_eq!(outcome.threads, Some(4));
+    assert_eq!(
+        std::fs::read(temp.path().join("threaded.bin")).unwrap(),
+        body
+    );
+    assert_eq!(request_count.load(Ordering::SeqCst), 4);
+    let requests = server.received_requests().await.unwrap();
+    assert!(!requests.iter().any(|request| {
+        request.url.path() == "/download.php"
+            && request
+                .url
+                .query_pairs()
+                .any(|(key, value)| key == "file" && value == "0123abcd-000000example-2")
+    }));
+}
+
+#[tokio::test]
 async fn download_stall_timeout_retries_and_succeeds() {
     let server = MockServer::start().await;
     mount_page(&server, include_str!("fixtures/single_basic.html")).await;
@@ -1001,6 +1171,24 @@ async fn mount_file(
         .await;
 }
 
+async fn mount_named_file(server: &MockServer, file_id: &str, name: &str, body: Vec<u8>) {
+    Mock::given(method("GET"))
+        .and(path("/download.php"))
+        .and(query_param("file", file_id))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Content-Length", body.len().to_string())
+                .insert_header("Content-Type", "application/octet-stream")
+                .insert_header(
+                    "Content-Disposition",
+                    format!("attachment; filename*=UTF-8''{name}"),
+                )
+                .set_body_bytes(body),
+        )
+        .mount(server)
+        .await;
+}
+
 fn options(server: &MockServer, temp: &TempDir, retries: u32) -> DownloadOptions {
     DownloadOptions {
         url: format!("{}/{FILE_ID}", server.uri()),
@@ -1008,6 +1196,7 @@ fn options(server: &MockServer, temp: &TempDir, retries: u32) -> DownloadOptions
         force: false,
         no_resume: false,
         key: None,
+        selection: None,
         threads: 1,
         timeout: Duration::from_secs(60),
         retries,

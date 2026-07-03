@@ -10,6 +10,7 @@ upload and download files straight from the terminal.
 ## Features
 
 - Downloads single-file and multi-file (matomete) pages, with `--key` for password-protected links
+- Select files from matomete pages with `rgfile info` indexes and `download --select 1,3-5`
 - Resumable downloads: interrupted transfers continue from where they stopped, completion is atomic and size-verified
 - Correct filenames: decoded from `Content-Disposition` (RFC 5987), so UTF-8 / Japanese names survive intact
 - Streaming uploads with constant memory (~10 MiB peak, independent of chunk size) and per-chunk retry
@@ -17,6 +18,8 @@ upload and download files straight from the terminal.
 - `rgfile info <url>` inspects a page without downloading
 - Optional TOML config and opt-in local history (`rgfile history list`)
 - `--json` output and stable exit codes for scripting
+- `rgfile self-update` upgrades release-installed binaries with SHA-256 verification
+- Shell completions via `rgfile completions <shell>`
 - Static musl Linux binary, plus macOS (arm64/Intel) and Windows builds
 
 ## Install
@@ -48,7 +51,8 @@ platforms (with `SHA256SUMS`) are on the same page.
 ### Upgrade
 
 Rerun the install one-liner, or `cargo install rgfile`, or
-`brew upgrade rgfile` — whichever you installed with.
+`brew upgrade rgfile` — whichever you installed with. Release-installed
+binaries can also run `rgfile self-update`.
 
 ## Usage
 
@@ -57,6 +61,7 @@ Rerun the install one-liner, or `cargo install rgfile`, or
 rgfile download https://23.gigafile.nu/0123abcd-000000example
 rgfile download https://23.gigafile.nu/0123abcd-000000example -o ./downloads
 rgfile download https://23.gigafile.nu/0123abcd-000000example --key EXAMPLE-KEY-0000
+rgfile download --select 1,3-5 https://23.gigafile.nu/0123abcd-000000example
 rgfile download --json https://23.gigafile.nu/0123abcd-000000example
 
 # Upload (prints the download URL and the delete key)
@@ -66,6 +71,9 @@ rgfile upload --json ./example-file.bin
 
 # Inspect a page without downloading
 rgfile info https://23.gigafile.nu/0123abcd-000000example
+
+# Generate shell completions
+rgfile completions zsh > _rgfile
 ```
 
 If a page needs a key and none is given, `rgfile` prompts on an interactive
@@ -126,7 +134,7 @@ opt in with `history.store_delete_keys = true`.
 | 17 | Downloaded size mismatch |
 | 18 | Local filesystem error |
 | 19 | Upload rejected by the server |
-| 20 | Upload verification failed |
+| 20 | Upload or self-update verification failed |
 
 ## Notes
 

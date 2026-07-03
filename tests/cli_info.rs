@@ -33,6 +33,7 @@ async fn cli_info_single_does_not_request_download_endpoint() {
         .assert()
         .success()
         .stdout(predicate::str::contains("kind\tsingle"))
+        .stdout(predicate::str::contains("[1]"))
         .stdout(predicate::str::contains(
             "display_name (may be masked)\texample file.bin",
         ));

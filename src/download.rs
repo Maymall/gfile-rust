@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 use std::{
+    collections::BTreeSet,
     io::{self, IsTerminal},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -39,6 +40,7 @@ pub struct DownloadOptions {
     pub force: bool,
     pub no_resume: bool,
     pub key: Option<String>,
+    pub selection: Option<FileSelection>,
     pub threads: u8,
     pub timeout: Duration,
     pub retries: u32,
@@ -46,6 +48,43 @@ pub struct DownloadOptions {
     pub dump_page: Option<PathBuf>,
     pub quiet: bool,
     pub allow_any_host: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileSelection {
+    indexes: Vec<usize>,
+}
+
+impl FileSelection {
+    pub fn parse(spec: &str) -> Result<Self, GfileError> {
+        let mut indexes = BTreeSet::new();
+        for raw_part in spec.split(',') {
+            let part = raw_part.trim();
+            if part.is_empty() {
+                return Err(selection_usage("empty selection item"));
+            }
+            if let Some((start, end)) = part.split_once('-') {
+                let start = parse_selection_index(start.trim())?;
+                let end = parse_selection_index(end.trim())?;
+                if start > end {
+                    return Err(selection_usage("range start is greater than range end"));
+                }
+                indexes.extend(start..=end);
+            } else {
+                indexes.insert(parse_selection_index(part)?);
+            }
+        }
+        if indexes.is_empty() {
+            return Err(selection_usage("selection is empty"));
+        }
+        Ok(Self {
+            indexes: indexes.into_iter().collect(),
+        })
+    }
+
+    fn contains(&self, index: usize) -> bool {
+        self.indexes.binary_search(&index).is_ok()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -231,11 +270,13 @@ pub async fn download(mut options: DownloadOptions) -> Result<DownloadReport, Gf
     }
 
     let page = parse_download_page(&html, &url_info.file_id)?;
+    validate_selection(&page, options.selection.as_ref())?;
     validate_output_for_page(&page, options.output.as_deref())?;
 
-    let mut records = Vec::with_capacity(page.files.len());
+    let selected_files = selected_files(&page, options.selection.as_ref());
+    let mut records = Vec::with_capacity(selected_files.len());
     let mut first_error = None;
-    for remote_file in &page.files {
+    for remote_file in selected_files {
         let final_path =
             resolve_output_path(remote_file, page.kind, options.output.as_deref()).await?;
         if let Err(error) = ensure_target_available(&final_path, options.force) {
@@ -290,6 +331,68 @@ pub async fn download(mut options: DownloadOptions) -> Result<DownloadReport, Gf
         failed,
         first_error,
     })
+}
+
+fn parse_selection_index(value: &str) -> Result<usize, GfileError> {
+    let index = value
+        .parse::<usize>()
+        .map_err(|_| selection_usage("selection entries must be positive integers"))?;
+    if index == 0 {
+        return Err(selection_usage("selection indexes start at 1"));
+    }
+    Ok(index)
+}
+
+fn selection_usage(detail: &str) -> GfileError {
+    GfileError::Usage {
+        message: format!("invalid --select value: {detail}; use `rgfile info` to see file numbers"),
+    }
+}
+
+fn validate_selection(
+    page: &PageInfo,
+    selection: Option<&FileSelection>,
+) -> Result<(), GfileError> {
+    let Some(selection) = selection else {
+        return Ok(());
+    };
+    if page.kind == PageKind::Single {
+        if selection.indexes.as_slice() == [1] {
+            return Ok(());
+        }
+        return Err(GfileError::Usage {
+            message:
+                "single-file pages only accept --select 1; use `rgfile info` to see file numbers"
+                    .to_owned(),
+        });
+    }
+    let max = page.files.len();
+    if let Some(index) = selection.indexes.iter().find(|index| **index > max) {
+        return Err(GfileError::Usage {
+            message: format!(
+                "selection index {index} is out of range for {max} files; use `rgfile info` to see file numbers"
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn selected_files<'a>(
+    page: &'a PageInfo,
+    selection: Option<&FileSelection>,
+) -> Vec<&'a RemoteFile> {
+    page.files
+        .iter()
+        .enumerate()
+        .filter_map(|(offset, file)| {
+            let index = offset + 1;
+            if selection.is_none_or(|selection| selection.contains(index)) {
+                Some(file)
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn record_error(
