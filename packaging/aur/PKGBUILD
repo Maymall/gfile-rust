@@ -11,7 +11,7 @@ license=('GPL-3.0-only')
 provides=('rgfile')
 conflicts=('rgfile')
 source=("$url/releases/download/v$pkgver/rgfile-$pkgver-x86_64-unknown-linux-gnu.tar.gz")
-sha256sums=('UPDATE_ON_RELEASE')
+sha256sums=('9a47944caa760d6ccf471d6f89a462a4f8463393592e75fa96146618a1553e38')
 
 package() {
     local dir="rgfile-$pkgver-x86_64-unknown-linux-gnu"
