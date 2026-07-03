@@ -24,7 +24,7 @@ async fn cli_upload_success_prints_url_and_delete_key() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .env("GFILE_TEST_ENTRY_URL", server.uri())
-        .args(["upload", "--no-verify"])
+        .args(["--no-config", "upload", "--no-verify"])
         .arg(file)
         .assert()
         .success()
@@ -48,7 +48,7 @@ async fn cli_upload_verbose_log_redacts_delete_key() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .env("GFILE_TEST_ENTRY_URL", server.uri())
-        .args(["-vv", "upload", "--no-verify"])
+        .args(["--no-config", "-vv", "upload", "--no-verify"])
         .arg(file)
         .assert()
         .success()
@@ -69,7 +69,7 @@ async fn cli_upload_missing_url_exits_19() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .env("GFILE_TEST_ENTRY_URL", server.uri())
-        .args(["upload", "--no-verify"])
+        .args(["--no-config", "upload", "--no-verify"])
         .arg(file)
         .assert()
         .code(19)
@@ -95,7 +95,7 @@ async fn cli_upload_verify_mismatch_exits_20() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .env("GFILE_TEST_ENTRY_URL", server.uri())
-        .args(["upload", "--timeout", "1"])
+        .args(["--no-config", "upload", "--timeout", "1"])
         .arg(file)
         .assert()
         .code(20)
@@ -109,7 +109,7 @@ fn cli_upload_empty_file_exits_2() {
 
     Command::cargo_bin("rgfile")
         .unwrap()
-        .args(["upload", "--no-verify"])
+        .args(["--no-config", "upload", "--no-verify"])
         .arg(file)
         .assert()
         .code(2)
@@ -123,7 +123,13 @@ fn cli_upload_invalid_chunk_size_exits_2() {
 
     Command::cargo_bin("rgfile")
         .unwrap()
-        .args(["upload", "--chunk-size", "512K", "--no-verify"])
+        .args([
+            "--no-config",
+            "upload",
+            "--chunk-size",
+            "512K",
+            "--no-verify",
+        ])
         .arg(file)
         .assert()
         .code(2)

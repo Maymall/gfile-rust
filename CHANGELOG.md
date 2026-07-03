@@ -11,6 +11,8 @@ Versioning.
 
 - Include upload delete keys, remote filenames, and estimated expiration timestamps in upload results.
 - Add `rgfile info` to inspect GigaFile pages without downloading file bodies.
+- Add TOML configuration with platform default paths, `--config`, and `--no-config`.
+- Add opt-in JSONL history recording plus `rgfile history list` and `rgfile history clear`.
 
 ## [0.3.1] - 2026-07-03
 

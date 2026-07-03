@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
-use std::{env, path::PathBuf, time::Duration};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use clap::{ArgAction, Parser, Subcommand};
+use serde::Serialize;
 use tracing_subscriber::EnvFilter;
 
-use crate::{download, error::GfileError, info, jsonout, upload};
+use crate::{
+    config, download,
+    error::{GfileError, IoOp},
+    history::{self, HistoryOverride, HistoryRecord},
+    info, jsonout, upload,
+};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -20,9 +30,45 @@ pub struct Cli {
         long = "verbose",
         action = ArgAction::Count,
         global = true,
+        help_heading = "Global Options",
         help = "Increase logging verbosity (-v for info, -vv for debug)"
     )]
     pub verbose: u8,
+
+    #[arg(
+        long = "config",
+        value_name = "PATH",
+        global = true,
+        conflicts_with = "no_config",
+        help_heading = "Global Options",
+        help = "Load configuration from a specific TOML file"
+    )]
+    pub config: Option<PathBuf>,
+
+    #[arg(
+        long = "no-config",
+        global = true,
+        help_heading = "Global Options",
+        help = "Do not load a configuration file"
+    )]
+    pub no_config: bool,
+
+    #[arg(
+        long = "history",
+        global = true,
+        conflicts_with = "no_history",
+        help_heading = "Global Options",
+        help = "Enable history for this run"
+    )]
+    pub history: bool,
+
+    #[arg(
+        long = "no-history",
+        global = true,
+        help_heading = "Global Options",
+        help = "Disable history for this run"
+    )]
+    pub no_history: bool,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -52,12 +98,12 @@ pub enum Commands {
         no_resume: bool,
 
         /// Per-read stall timeout in seconds.
-        #[arg(long = "timeout", default_value_t = 60)]
-        timeout: u64,
+        #[arg(long = "timeout")]
+        timeout: Option<u64>,
 
         /// Retry count for retryable network/server failures.
-        #[arg(long = "retries", default_value_t = 3)]
-        retries: u32,
+        #[arg(long = "retries")]
+        retries: Option<u32>,
 
         /// Override the default User-Agent.
         #[arg(long = "user-agent")]
@@ -81,12 +127,12 @@ pub enum Commands {
         url: String,
 
         /// Per-request timeout in seconds.
-        #[arg(long = "timeout", default_value_t = 60)]
-        timeout: u64,
+        #[arg(long = "timeout")]
+        timeout: Option<u64>,
 
         /// Retry count for retryable network/server failures.
-        #[arg(long = "retries", default_value_t = 3)]
-        retries: u32,
+        #[arg(long = "retries")]
+        retries: Option<u32>,
 
         /// Override the default User-Agent.
         #[arg(long = "user-agent")]
@@ -110,8 +156,8 @@ pub enum Commands {
         file: PathBuf,
 
         /// File lifetime in days.
-        #[arg(long = "lifetime", default_value_t = 100)]
-        lifetime: u16,
+        #[arg(long = "lifetime")]
+        lifetime: Option<u16>,
 
         /// Upload chunk size, for example 50M or 1G.
         #[arg(long = "chunk-size", default_value = "100MiB")]
@@ -122,12 +168,12 @@ pub enum Commands {
         no_verify: bool,
 
         /// Idle timeout in seconds while uploading a chunk.
-        #[arg(long = "timeout", default_value_t = 60)]
-        timeout: u64,
+        #[arg(long = "timeout")]
+        timeout: Option<u64>,
 
         /// Retry count for retryable network/server failures.
-        #[arg(long = "retries", default_value_t = 3)]
-        retries: u32,
+        #[arg(long = "retries")]
+        retries: Option<u32>,
 
         /// Override the default User-Agent.
         #[arg(long = "user-agent")]
@@ -145,6 +191,27 @@ pub enum Commands {
         #[arg(short = 'q', long = "quiet")]
         quiet: bool,
     },
+    /// Inspect or clear local history.
+    History {
+        #[command(subcommand)]
+        command: HistoryCommands,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HistoryCommands {
+    /// List recent history entries.
+    List {
+        /// Print one JSON object.
+        #[arg(long = "json")]
+        json: bool,
+
+        /// Maximum number of entries to show.
+        #[arg(short = 'n', long = "limit", default_value_t = 20)]
+        limit: usize,
+    },
+    /// Clear the history file.
+    Clear,
 }
 
 pub fn init_tracing(verbosity: u8) {
@@ -170,7 +237,21 @@ pub enum RunOutcome {
 }
 
 pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
-    match cli.command {
+    let Cli {
+        verbose: _,
+        config: config_path,
+        no_config,
+        history,
+        no_history,
+        command,
+    } = cli;
+    let config = config::load(config::LoadOptions {
+        path: config_path.as_deref(),
+        no_config,
+    })?;
+    let history_settings = history::settings(&config, history_override(history, no_history))?;
+
+    match command {
         Commands::Download {
             url,
             output,
@@ -184,15 +265,17 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
             json,
             quiet,
         } => {
+            let page_url = url.clone();
+            let output = resolve_download_output(&config, output)?;
             let result = download::download(download::DownloadOptions {
                 url,
                 output,
                 key,
                 force,
                 no_resume,
-                timeout: Duration::from_secs(timeout),
-                retries,
-                user_agent,
+                timeout: Duration::from_secs(config.resolve_timeout_secs(timeout)),
+                retries: config.resolve_retries(retries),
+                user_agent: config.resolve_user_agent(user_agent),
                 dump_page,
                 quiet: quiet || json,
                 allow_any_host: test_allow_any_host(),
@@ -207,17 +290,34 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
                         print_human_download_report(&report);
                     }
                     if let Some(code) = report.first_failure_exit_code() {
+                        record_download_history(
+                            &history_settings,
+                            page_url,
+                            &report,
+                            code.to_string(),
+                        );
                         Ok(RunOutcome::Failure(code))
                     } else {
+                        record_download_history(
+                            &history_settings,
+                            page_url,
+                            &report,
+                            "ok".to_owned(),
+                        );
                         Ok(RunOutcome::Success)
                     }
                 }
                 Err(error) if json => {
                     let code = error.exit_code();
                     jsonout::print_error(&error)?;
+                    record_download_error_history(&history_settings, page_url, code);
                     Ok(RunOutcome::Failure(code))
                 }
-                Err(error) => Err(error),
+                Err(error) => {
+                    let code = error.exit_code();
+                    record_download_error_history(&history_settings, page_url, code);
+                    Err(error)
+                }
             }
         }
         Commands::Info {
@@ -231,9 +331,9 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
         } => {
             let result = info::info(info::InfoOptions {
                 url,
-                timeout: Duration::from_secs(timeout),
-                retries,
-                user_agent,
+                timeout: Duration::from_secs(config.resolve_timeout_secs(timeout)),
+                retries: config.resolve_retries(retries),
+                user_agent: config.resolve_user_agent(user_agent),
                 dump_page,
                 allow_any_host: test_allow_any_host(),
             })
@@ -268,14 +368,15 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
             json,
             quiet,
         } => {
+            let input_file = file.clone();
             let result = upload::upload(upload::UploadOptions {
                 file,
-                lifetime,
+                lifetime: config.resolve_lifetime(lifetime),
                 chunk_size: upload::parse_chunk_size(&chunk_size)?,
                 verify: !no_verify,
-                timeout: Duration::from_secs(timeout),
-                retries,
-                user_agent,
+                timeout: Duration::from_secs(config.resolve_timeout_secs(timeout)),
+                retries: config.resolve_retries(retries),
+                user_agent: config.resolve_user_agent(user_agent),
                 dump_page,
                 quiet: quiet || json,
                 allow_any_host: test_allow_any_host(),
@@ -295,17 +396,168 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
                             eprintln!("Warning: upload size verification was unavailable.");
                         }
                     }
+                    record_upload_history(&history_settings, &input_file, &report, "ok".to_owned());
                     Ok(RunOutcome::Success)
                 }
                 Err(error) if json => {
                     let code = error.exit_code();
                     jsonout::print_error(&error)?;
+                    record_upload_error_history(&history_settings, &input_file, code);
                     Ok(RunOutcome::Failure(code))
                 }
-                Err(error) => Err(error),
+                Err(error) => {
+                    let code = error.exit_code();
+                    record_upload_error_history(&history_settings, &input_file, code);
+                    Err(error)
+                }
             }
         }
+        Commands::History { command } => match command {
+            HistoryCommands::List { json, limit } => {
+                let records = history::latest(history::read(&history_settings.path)?, limit);
+                if json {
+                    jsonout::print_json(&HistoryListJson {
+                        status: "ok",
+                        entries: &records,
+                    })?;
+                } else {
+                    print_human_history(&records);
+                }
+                Ok(RunOutcome::Success)
+            }
+            HistoryCommands::Clear => {
+                history::clear(&history_settings.path)?;
+                println!("history cleared");
+                Ok(RunOutcome::Success)
+            }
+        },
     }
+}
+
+#[derive(Debug, Serialize)]
+struct HistoryListJson<'a> {
+    status: &'static str,
+    entries: &'a [HistoryRecord],
+}
+
+fn history_override(history: bool, no_history: bool) -> HistoryOverride {
+    if history {
+        HistoryOverride::Enable
+    } else if no_history {
+        HistoryOverride::Disable
+    } else {
+        HistoryOverride::Auto
+    }
+}
+
+fn resolve_download_output(
+    config: &config::AppConfig,
+    cli_output: Option<PathBuf>,
+) -> Result<Option<PathBuf>, GfileError> {
+    if cli_output.is_some() {
+        return Ok(cli_output);
+    }
+    let Some(path) = config.download.dir.clone() else {
+        return Ok(None);
+    };
+    std::fs::create_dir_all(&path).map_err(|source| GfileError::Io {
+        source,
+        path: path.clone(),
+        op: IoOp::Create,
+    })?;
+    Ok(Some(path))
+}
+
+fn record_download_history(
+    settings: &history::HistorySettings,
+    page_url: String,
+    report: &download::DownloadReport,
+    result: String,
+) {
+    let record = HistoryRecord::download(
+        page_url,
+        report.files.iter().map(|file| file.name.clone()).collect(),
+        total_download_bytes(report),
+        result,
+    );
+    history::append(settings, &record);
+}
+
+fn record_download_error_history(
+    settings: &history::HistorySettings,
+    page_url: String,
+    exit_code: u8,
+) {
+    let record = HistoryRecord::download(page_url, Vec::new(), None, exit_code.to_string());
+    history::append(settings, &record);
+}
+
+fn record_upload_history(
+    settings: &history::HistorySettings,
+    input_file: &Path,
+    report: &upload::UploadReport,
+    result: String,
+) {
+    let filename = report
+        .remote_filename
+        .clone()
+        .or_else(|| local_file_name(input_file))
+        .into_iter()
+        .collect();
+    let delete_key = settings
+        .store_delete_keys
+        .then(|| report.delkey.clone())
+        .flatten();
+    let record = HistoryRecord::upload(
+        report.url.clone(),
+        filename,
+        Some(report.bytes),
+        result,
+        delete_key,
+    );
+    history::append(settings, &record);
+}
+
+fn record_upload_error_history(
+    settings: &history::HistorySettings,
+    input_file: &Path,
+    exit_code: u8,
+) {
+    let record = HistoryRecord::upload(
+        String::new(),
+        local_file_name(input_file).into_iter().collect(),
+        local_file_size(input_file),
+        exit_code.to_string(),
+        None,
+    );
+    history::append(settings, &record);
+}
+
+fn total_download_bytes(report: &download::DownloadReport) -> Option<u64> {
+    let mut saw_bytes = false;
+    let total = report
+        .files
+        .iter()
+        .filter_map(|file| {
+            let bytes = file.bytes?;
+            saw_bytes = true;
+            Some(bytes)
+        })
+        .sum();
+    saw_bytes.then_some(total)
+}
+
+fn local_file_name(path: &Path) -> Option<String> {
+    path.file_name()
+        .map(|value| value.to_string_lossy().into_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn local_file_size(path: &Path) -> Option<u64> {
+    std::fs::metadata(path)
+        .ok()
+        .filter(|metadata| metadata.is_file())
+        .map(|metadata| metadata.len())
 }
 
 fn print_human_download_report(report: &download::DownloadReport) {
@@ -350,6 +602,34 @@ fn print_human_upload_report(report: &upload::UploadReport) {
     }
     if let Some(expires_at) = &report.expires_at_estimate {
         println!("expires_at_estimate={expires_at}");
+    }
+}
+
+fn print_human_history(records: &[HistoryRecord]) {
+    println!("timestamp\toperation\tresult\tbytes\tfiles\turl");
+    for record in records {
+        let operation = match record.operation {
+            history::HistoryOperation::Download => "download",
+            history::HistoryOperation::Upload => "upload",
+        };
+        let bytes = record
+            .bytes
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "-".to_owned());
+        let files = if record.files.is_empty() {
+            "-".to_owned()
+        } else {
+            record.files.join(",")
+        };
+        let url = if record.page_url.is_empty() {
+            "-"
+        } else {
+            &record.page_url
+        };
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}",
+            record.timestamp, operation, record.result, bytes, files, url
+        );
     }
 }
 

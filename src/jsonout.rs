@@ -158,7 +158,7 @@ fn kind_name(kind: PageKind) -> &'static str {
     }
 }
 
-fn print_json(value: &impl Serialize) -> Result<(), GfileError> {
+pub fn print_json(value: &impl Serialize) -> Result<(), GfileError> {
     let text = serde_json::to_string(value).map_err(|source| GfileError::Parse {
         what: format!("failed to serialize JSON output: {source}"),
         hint: "This is an internal output error; please report it.".to_owned(),

@@ -26,7 +26,12 @@ async fn cli_download_success_writes_file() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["download", &format!("{}/{FILE_ID}", server.uri()), "-o"])
+        .args([
+            "--no-config",
+            "download",
+            &format!("{}/{FILE_ID}", server.uri()),
+            "-o",
+        ])
         .arg(temp.path())
         .assert()
         .success()
@@ -44,7 +49,11 @@ async fn cli_download_success_writes_file() {
 fn cli_download_invalid_url_exits_10() {
     Command::cargo_bin("rgfile")
         .unwrap()
-        .args(["download", "http://23.gigafile.nu/0123abcd-000000example"])
+        .args([
+            "--no-config",
+            "download",
+            "http://23.gigafile.nu/0123abcd-000000example",
+        ])
         .assert()
         .code(10)
         .stderr(predicate::str::contains(
@@ -61,7 +70,12 @@ async fn cli_download_parse_error_exits_13() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["download", &format!("{}/{FILE_ID}", server.uri()), "-o"])
+        .args([
+            "--no-config",
+            "download",
+            &format!("{}/{FILE_ID}", server.uri()),
+            "-o",
+        ])
         .arg(temp.path())
         .assert()
         .code(13)
@@ -82,7 +96,12 @@ fn cli_download_size_mismatch_exits_17() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["download", &format!("{server_uri}/{FILE_ID}"), "-o"])
+        .args([
+            "--no-config",
+            "download",
+            &format!("{server_uri}/{FILE_ID}"),
+            "-o",
+        ])
         .arg(temp.path())
         .assert()
         .code(17)
@@ -99,7 +118,12 @@ async fn cli_download_existing_target_without_force_exits_18() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["download", &format!("{}/{FILE_ID}", server.uri()), "-o"])
+        .args([
+            "--no-config",
+            "download",
+            &format!("{}/{FILE_ID}", server.uri()),
+            "-o",
+        ])
         .arg(temp.path())
         .assert()
         .code(18)
@@ -115,7 +139,12 @@ async fn cli_download_key_required_page_without_key_exits_15() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["download", &format!("{}/{FILE_ID}", server.uri()), "-o"])
+        .args([
+            "--no-config",
+            "download",
+            &format!("{}/{FILE_ID}", server.uri()),
+            "-o",
+        ])
         .arg(temp.path())
         .assert()
         .code(15)
@@ -131,7 +160,12 @@ async fn cli_download_notfound_page_exits_14() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["download", &format!("{}/{FILE_ID}", server.uri()), "-o"])
+        .args([
+            "--no-config",
+            "download",
+            &format!("{}/{FILE_ID}", server.uri()),
+            "-o",
+        ])
         .arg(temp.path())
         .assert()
         .code(14)
@@ -148,7 +182,12 @@ async fn cli_download_matomete_output_file_exits_2() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["download", &format!("{}/{FILE_ID}", server.uri()), "-o"])
+        .args([
+            "--no-config",
+            "download",
+            &format!("{}/{FILE_ID}", server.uri()),
+            "-o",
+        ])
         .arg(output_file)
         .assert()
         .code(2)

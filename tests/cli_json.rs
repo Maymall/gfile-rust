@@ -32,7 +32,7 @@ fn snapshot_rgfile_help() {
 fn snapshot_download_help() {
     let output = Command::cargo_bin("rgfile")
         .unwrap()
-        .args(["download", "--help"])
+        .args(["--no-config", "download", "--help"])
         .output()
         .unwrap();
 
@@ -47,7 +47,7 @@ fn snapshot_download_help() {
 fn snapshot_upload_help() {
     let output = Command::cargo_bin("rgfile")
         .unwrap()
-        .args(["upload", "--help"])
+        .args(["--no-config", "upload", "--help"])
         .output()
         .unwrap();
 
@@ -59,7 +59,7 @@ fn snapshot_upload_help() {
 fn snapshot_info_help() {
     let output = Command::cargo_bin("rgfile")
         .unwrap()
-        .args(["info", "--help"])
+        .args(["--no-config", "info", "--help"])
         .output()
         .unwrap();
 
@@ -80,6 +80,7 @@ async fn snapshot_json_single_success() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .args([
+            "--no-config",
             "download",
             "--json",
             &format!("{}/{FILE_ID}", server.uri()),
@@ -119,6 +120,7 @@ async fn snapshot_json_matomete_partial_failure() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .args([
+            "--no-config",
             "download",
             "--json",
             &format!("{}/{FILE_ID}", server.uri()),
@@ -151,6 +153,7 @@ async fn snapshot_json_key_wrong_failure() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .args([
+            "--no-config",
             "download",
             "--json",
             "--key",
@@ -181,6 +184,7 @@ fn snapshot_json_size_mismatch_failure() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .args([
+            "--no-config",
             "download",
             "--json",
             &format!("{server_uri}/{FILE_ID}"),
@@ -204,6 +208,7 @@ async fn snapshot_json_parse_failure() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .args([
+            "--no-config",
             "download",
             "--json",
             &format!("{}/{FILE_ID}", server.uri()),
@@ -249,7 +254,7 @@ async fn snapshot_json_upload_success() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .env("GFILE_TEST_ENTRY_URL", server.uri())
-        .args(["upload", "--json", "--no-verify"])
+        .args(["--no-config", "upload", "--json", "--no-verify"])
         .arg(file)
         .output()
         .unwrap();
@@ -266,7 +271,12 @@ async fn snapshot_json_info_single() {
     let output = Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["info", "--json", &format!("{}/{FILE_ID}", server.uri())])
+        .args([
+            "--no-config",
+            "info",
+            "--json",
+            &format!("{}/{FILE_ID}", server.uri()),
+        ])
         .output()
         .unwrap();
 
@@ -282,7 +292,12 @@ async fn snapshot_json_info_needs_key() {
     let output = Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["info", "--json", &format!("{}/{FILE_ID}", server.uri())])
+        .args([
+            "--no-config",
+            "info",
+            "--json",
+            &format!("{}/{FILE_ID}", server.uri()),
+        ])
         .output()
         .unwrap();
 

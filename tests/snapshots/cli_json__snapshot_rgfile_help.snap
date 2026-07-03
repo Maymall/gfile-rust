@@ -10,9 +10,16 @@ Commands:
   download  Download a file from a public GigaFile page
   info      Show metadata for a public GigaFile page without downloading files
   upload    Upload a local file
+  history   Inspect or clear local history
   help      Print this message or the help of the given subcommand(s)
 
 Options:
-  -v, --verbose...  Increase logging verbosity (-v for info, -vv for debug)
-  -h, --help        Print help
-  -V, --version     Print version
+  -h, --help     Print help
+  -V, --version  Print version
+
+Global Options:
+  -v, --verbose...     Increase logging verbosity (-v for info, -vv for debug)
+      --config <PATH>  Load configuration from a specific TOML file
+      --no-config      Do not load a configuration file
+      --history        Enable history for this run
+      --no-history     Disable history for this run

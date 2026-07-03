@@ -30,6 +30,7 @@ use crate::{
         landing::parse_landing_server,
     },
     progress::ByteProgress,
+    timeutil,
     urlinfo::parse_download_url,
 };
 
@@ -702,31 +703,7 @@ fn redact_value_key(value: &mut Value, key: &str) {
 fn estimate_expires_at(now: SystemTime, lifetime_days: u16) -> Option<String> {
     let expires = now.checked_add(Duration::from_secs(u64::from(lifetime_days) * 86_400))?;
     let seconds = expires.duration_since(UNIX_EPOCH).ok()?.as_secs();
-    Some(format_unix_utc(seconds))
-}
-
-fn format_unix_utc(seconds: u64) -> String {
-    let days = (seconds / 86_400) as i64;
-    let seconds_of_day = seconds % 86_400;
-    let (year, month, day) = civil_from_days(days);
-    let hour = seconds_of_day / 3_600;
-    let minute = (seconds_of_day % 3_600) / 60;
-    let second = seconds_of_day % 60;
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
-}
-
-fn civil_from_days(days_since_epoch: i64) -> (i32, u32, u32) {
-    let z = days_since_epoch + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = mp + if mp < 10 { 3 } else { -9 };
-    let year = y + if month <= 2 { 1 } else { 0 };
-    (year as i32, month as u32, day as u32)
+    Some(timeutil::format_unix_utc(seconds))
 }
 
 fn usage(message: &str) -> GfileError {
@@ -821,12 +798,5 @@ mod tests {
         assert!(!redacted.contains("EXAMPLE-DELETE-0000"));
         assert!(redacted.contains("\"delkey\":\"***\""));
         assert!(redacted.contains("\"delete_key\":\"***\""));
-    }
-
-    #[test]
-    fn unix_utc_formatting_is_iso_8601() {
-        assert_eq!(format_unix_utc(0), "1970-01-01T00:00:00Z");
-        assert_eq!(format_unix_utc(86_400), "1970-01-02T00:00:00Z");
-        assert_eq!(format_unix_utc(1_704_067_199), "2023-12-31T23:59:59Z");
     }
 }

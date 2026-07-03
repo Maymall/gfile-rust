@@ -25,7 +25,11 @@ async fn cli_info_single_does_not_request_download_endpoint() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["info", &format!("{}/{FILE_ID}", server.uri())])
+        .args([
+            "--no-config",
+            "info",
+            &format!("{}/{FILE_ID}", server.uri()),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("kind\tsingle"))
@@ -51,7 +55,11 @@ async fn cli_info_needs_key_succeeds_without_key() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["info", &format!("{}/{FILE_ID}", server.uri())])
+        .args([
+            "--no-config",
+            "info",
+            &format!("{}/{FILE_ID}", server.uri()),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("key_required\ttrue"));
@@ -72,7 +80,11 @@ async fn cli_info_notfound_exits_14() {
     Command::cargo_bin("rgfile")
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
-        .args(["info", &format!("{}/{FILE_ID}", server.uri())])
+        .args([
+            "--no-config",
+            "info",
+            &format!("{}/{FILE_ID}", server.uri()),
+        ])
         .assert()
         .code(14)
         .stderr(predicate::str::contains("not found or has expired"));
@@ -89,6 +101,7 @@ async fn cli_info_dump_page_writes_html() {
         .unwrap()
         .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
         .args([
+            "--no-config",
             "info",
             &format!("{}/{FILE_ID}", server.uri()),
             "--dump-page",

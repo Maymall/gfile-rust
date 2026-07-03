@@ -129,6 +129,79 @@ Emit a single JSON object for scripting:
 rgfile upload --json ./example-file.bin
 ```
 
+## Configuration
+
+`rgfile` reads an optional TOML config file from the platform config directory.
+If the file is missing, built-in defaults are used. Use `--config <path>` to
+load a specific file, or `--no-config` to skip config loading entirely.
+
+| Platform | Default config path |
+|---|---|
+| Linux | `$XDG_CONFIG_HOME/rgfile/config.toml`, or `~/.config/rgfile/config.toml` |
+| macOS | `~/Library/Application Support/rgfile/config.toml` |
+| Windows | `%APPDATA%\rgfile\config.toml` |
+
+Explicit CLI options win over config values, and config values win over built-in
+defaults.
+
+```toml
+[download]
+dir = "/home/alice/Downloads"
+
+[upload]
+lifetime = 7
+
+[network]
+timeout = 60
+retries = 3
+user_agent = "rgfile-custom/1.0"
+
+[history]
+enabled = false
+store_delete_keys = false
+```
+
+Supported keys:
+
+| Key | Meaning |
+|---|---|
+| `download.dir` | Default output directory for downloads; `-o/--output` overrides it. |
+| `upload.lifetime` | Default upload lifetime: 3, 5, 7, 14, 30, 60, or 100 days. |
+| `network.timeout` | Default transfer/request timeout in seconds. |
+| `network.retries` | Default retry count for retryable network/server failures. |
+| `network.user_agent` | Default HTTP User-Agent string. |
+| `history.enabled` | Enable automatic history recording. Defaults to `false`. |
+| `history.store_delete_keys` | Store upload delete keys in history. Defaults to `false`. |
+
+## History
+
+History is off by default. Enable it in config with `history.enabled = true`, or
+for one command with `--history`. Use `--no-history` to disable recording for a
+single command even when config enables it.
+
+History is appended as JSON Lines:
+
+| Platform | Default history path |
+|---|---|
+| Linux | `$XDG_DATA_HOME/rgfile/history.jsonl`, or `~/.local/share/rgfile/history.jsonl` |
+| macOS | `~/Library/Application Support/rgfile/history.jsonl` |
+| Windows | `%APPDATA%\rgfile\history.jsonl` |
+
+Each completed download/upload records a UTC timestamp, operation type, page
+URL, file names, byte count, and result (`ok` or an exit code). History write
+failures print a warning but do not change the main command exit code.
+
+```bash
+rgfile history list
+rgfile history list --json -n 5
+rgfile history clear
+```
+
+Download keys/passwords are never written to history. Upload delete keys are
+also omitted by default. Setting `history.store_delete_keys = true` stores them
+in plaintext in the local history file; only enable it if you accept that local
+credential exposure risk.
+
 ## Exit codes
 
 `0` indicates success. Failures use the following codes:
