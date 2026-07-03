@@ -1,11 +1,31 @@
 [package]
 name = "rgfile"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-only"
 repository = "https://github.com/Maymall/gigafile-rust-cli"
 description = "A conservative Rust CLI for GigaFile public web uploads and downloads."
+readme = "README.md"
+keywords = ["gigafile", "upload", "download", "file-transfer", "cli"]
+categories = ["command-line-utilities"]
+
+[package.metadata.deb]
+maintainer = "Maymall <tung1trump@gmail.com>"
+copyright = "2026, rgfile contributors. GPL-3.0-only."
+license-file = ["LICENSE", "0"]
+extended-description = """\
+rgfile is a fast, robust command-line client for GigaFile.nu. It supports \
+resumable single-file and multi-file downloads with atomic completion, \
+correct UTF-8 filenames decoded from Content-Disposition, and streaming \
+chunked uploads with constant memory usage."""
+# The published .deb ships the statically linked musl binary: no runtime deps.
+depends = ""
+assets = [
+    ["target/release/rgfile", "usr/bin/", "755"],
+    ["README.md", "usr/share/doc/rgfile/README.md", "644"],
+    ["NOTICE.md", "usr/share/doc/rgfile/NOTICE.md", "644"],
+]
 
 [lib]
 name = "rgfile"

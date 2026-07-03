@@ -7,6 +7,8 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-07-03
+
 ### Added
 
 - Include upload delete keys, remote filenames, and estimated expiration timestamps in upload results.
@@ -14,6 +16,8 @@ Versioning.
 - Add TOML configuration with platform default paths, `--config`, and `--no-config`.
 - Add opt-in JSONL history recording plus `rgfile history list` and `rgfile history clear`.
 - Add one-line install scripts (`install.sh` / `install.ps1`) that download the latest release, verify its SHA-256, and install the binary.
+- Publish releases as a Debian package (`rgfile_<version>_amd64.deb`, static musl binary) alongside the archives.
+- Publish the crate to crates.io (`cargo install rgfile`) and provide an AUR package (`rgfile-bin`).
 
 ## [0.3.1] - 2026-07-03
 

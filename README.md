@@ -56,6 +56,31 @@ Both scripts refuse to install anything whose checksum does not match the
 release's `SHA256SUMS`. Prefer to read before you run? Download
 [`install.sh`](install.sh) / [`install.ps1`](install.ps1) first and inspect it.
 
+### Package managers
+
+With a Rust toolchain (any platform, builds from [crates.io](https://crates.io/crates/rgfile)):
+
+```bash
+cargo install rgfile
+```
+
+Arch Linux (AUR):
+
+```bash
+yay -S rgfile-bin
+```
+
+Debian / Ubuntu — each release ships a `.deb` built from the static musl
+binary (no runtime dependencies, works on any Debian version):
+
+```bash
+curl -fsSLO https://github.com/Maymall/gigafile-rust-cli/releases/latest/download/SHA256SUMS
+deb=$(grep -o 'rgfile_[0-9.]*_amd64\.deb' SHA256SUMS | head -1)
+curl -fsSLO "https://github.com/Maymall/gigafile-rust-cli/releases/latest/download/${deb}"
+sha256sum --ignore-missing -c SHA256SUMS
+sudo apt install "./${deb}"
+```
+
 ### Prebuilt binaries
 
 Download the archive for your platform from the
