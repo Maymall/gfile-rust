@@ -8,6 +8,7 @@ use crate::{
     download::{DownloadFileRecord, DownloadReport},
     error::GfileError,
     parser::download::PageKind,
+    upload::UploadReport,
 };
 
 #[derive(Debug, Serialize)]
@@ -44,6 +45,17 @@ pub fn print_download_report(report: &DownloadReport) -> Result<(), GfileError> 
     print_json(&json)
 }
 
+pub fn print_upload_report(report: &UploadReport) -> Result<(), GfileError> {
+    let json = UploadReportJson {
+        status: "ok",
+        url: &report.url,
+        bytes: report.bytes,
+        lifetime: report.lifetime,
+        verified: report.verified,
+    };
+    print_json(&json)
+}
+
 pub fn print_error(error: &GfileError) -> Result<(), GfileError> {
     let json = ErrorJson {
         code: error.code(),
@@ -72,6 +84,15 @@ struct ErrorEnvelope {
     code: &'static str,
     exit_code: u8,
     message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct UploadReportJson<'a> {
+    status: &'static str,
+    url: &'a str,
+    bytes: u64,
+    lifetime: u16,
+    verified: Option<bool>,
 }
 
 fn download_file_json(file: &DownloadFileRecord) -> DownloadFileJson<'_> {

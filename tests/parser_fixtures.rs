@@ -5,6 +5,7 @@ use gfile_rust::{
     parser::download::{
         PageKind, PageState, classify_page, parse_download_page, parse_single_file_page,
     },
+    parser::landing::parse_landing_server,
 };
 
 const FILE_ID: &str = "0123abcd-000000example";
@@ -80,6 +81,10 @@ fn classify_page_fixtures_report_download_states() {
         PageState::Ok
     );
     assert_eq!(
+        classify_page(include_str!("fixtures/single_disabled_key.html"), 200),
+        PageState::Ok
+    );
+    assert_eq!(
         classify_page(include_str!("fixtures/page_needs_key.html"), 200),
         PageState::NeedsKey
     );
@@ -110,4 +115,11 @@ fn parse_single_broken_fixture_reports_missing_dl() {
         GfileError::Parse { what, .. } => assert!(what.contains("#dl"), "{what}"),
         other => panic!("unexpected error: {other:?}"),
     }
+}
+
+#[test]
+fn parse_landing_fixture_extracts_upload_server() {
+    let server = parse_landing_server(include_str!("fixtures/landing_server.html")).unwrap();
+
+    assert_eq!(server, "99.gigafile.nu");
 }

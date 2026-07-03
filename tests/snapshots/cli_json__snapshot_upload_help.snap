@@ -10,5 +10,14 @@ Arguments:
   <FILE>  File to upload
 
 Options:
-  -v, --verbose...  Increase logging verbosity (-v for info, -vv for debug)
-  -h, --help        Print help
+      --lifetime <LIFETIME>      File lifetime in days [default: 100]
+  -v, --verbose...               Increase logging verbosity (-v for info, -vv for debug)
+      --chunk-size <CHUNK_SIZE>  Upload chunk size, for example 50M or 1G [default: 100MiB]
+      --no-verify                Skip post-upload size verification
+      --timeout <TIMEOUT>        Per-request timeout in seconds [default: 60]
+      --retries <RETRIES>        Retry count for retryable network/server failures [default: 3]
+      --user-agent <USER_AGENT>  Override the default User-Agent
+      --dump-page <DUMP_PAGE>    Save the fetched upload landing page HTML for diagnostics
+      --json                     Print one JSON object and disable progress output
+  -q, --quiet                    Disable progress and non-error status output
+  -h, --help                     Print help

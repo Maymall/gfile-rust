@@ -10,4 +10,5 @@ pub mod jsonout;
 pub mod naming;
 pub mod parser;
 pub mod progress;
+pub mod upload;
 pub mod urlinfo;

@@ -203,6 +203,45 @@ async fn snapshot_json_parse_failure() {
     insta::assert_snapshot!(normalize_json(&output.stdout));
 }
 
+#[tokio::test]
+async fn snapshot_json_upload_success() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            format!(r#"<script>var server = "{}";</script>"#, server.uri()),
+            "text/html",
+        ))
+        .mount(&server)
+        .await;
+    let upload_url = format!("{}/{FILE_ID}", server.uri());
+    Mock::given(method("POST"))
+        .and(path("/upload_chunk.php"))
+        .respond_with(move |_request: &Request| {
+            ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "status": 0,
+                "url": upload_url,
+            }))
+        })
+        .mount(&server)
+        .await;
+    let temp = TempDir::new().unwrap();
+    let file = temp.path().join("upload.bin");
+    std::fs::write(&file, b"hello").unwrap();
+
+    let output = Command::cargo_bin("gfile")
+        .unwrap()
+        .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
+        .env("GFILE_TEST_ENTRY_URL", server.uri())
+        .args(["upload", "--json", "--no-verify"])
+        .arg(file)
+        .output()
+        .unwrap();
+
+    assert!(output.status.success(), "{output:?}");
+    insta::assert_snapshot!(normalize_json(&output.stdout));
+}
+
 async fn mount_page(server: &MockServer, body: &'static str) {
     Mock::given(method("GET"))
         .and(path(format!("/{FILE_ID}")))
@@ -247,6 +286,9 @@ fn redact_paths(value: &mut Value) {
         Value::Object(map) => {
             if map.contains_key("path") {
                 map.insert("path".to_owned(), Value::String("<PATH>".to_owned()));
+            }
+            if map.contains_key("url") {
+                map.insert("url".to_owned(), Value::String("<URL>".to_owned()));
             }
             for value in map.values_mut() {
                 redact_paths(value);

@@ -7,6 +7,15 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-03
+
+### Added
+
+- Implement single-file uploads with serial streaming multipart chunks.
+- Add upload landing-page parsing and local fixture coverage.
+- Add upload verification via returned download page `Content-Length`.
+- Add upload JSON output, CLI snapshots, and upload error coverage for rejected uploads and verification failures.
+
 ## [0.1.0] - 2026-07-03
 
 ### Added

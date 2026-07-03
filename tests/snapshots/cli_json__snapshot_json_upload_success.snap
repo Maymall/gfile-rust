@@ -1,0 +1,11 @@
+---
+source: tests/cli_json.rs
+expression: normalize_json(&output.stdout)
+---
+{
+  "bytes": 5,
+  "lifetime": 100,
+  "status": "ok",
+  "url": "<URL>",
+  "verified": null
+}

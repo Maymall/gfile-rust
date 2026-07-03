@@ -2,7 +2,39 @@
 
 `gfile-rust` is a Rust command line tool for automating public GigaFile web
 upload and download flows. Download support is implemented for single-file and
-matomete pages; upload support is still planned.
+matomete pages; upload support is implemented for single-file uploads.
+
+## Upload Usage
+
+Upload a local file and print the public download page URL:
+
+```bash
+gfile upload ./example-file.bin
+```
+
+The default lifetime is 100 days. GigaFile-supported lifetimes can be selected
+explicitly:
+
+```bash
+gfile upload ./example-file.bin --lifetime 7
+```
+
+Uploads are split into serial multipart chunks. The default chunk size is
+100MiB; values from 1MiB through 1GiB are accepted:
+
+```bash
+gfile upload ./example-file.bin --chunk-size 50M
+```
+
+After upload, `gfile-rust` verifies the returned download page by checking the
+remote `Content-Length`. Use `--no-verify` only when the server cannot expose a
+reliable length and you have another way to validate the result.
+
+For scripts, upload also supports final JSON output:
+
+```bash
+gfile upload --json ./example-file.bin
+```
 
 ## Download Usage
 
@@ -49,10 +81,14 @@ When GigaFile's page masks the displayed filename, `gfile-rust` prefers the
 
 | Python gfile | gfile-rust | Notes |
 |---|---|---|
+| `gfile upload FILE` | `gfile upload FILE` | Uploads are intentionally serial and stream chunks from disk. |
+| fixed upload lifetime | `--lifetime <DAYS>` | Accepted values: 3, 5, 7, 14, 30, 60, 100. |
+| upload progress | upload progress | Progress advances after each confirmed chunk. |
 | `gfile download URL` | `gfile download URL` | Same basic download shape. |
 | `--key` / `--password` | `--key` / `--password` / `-k` | Password value is sent as `dlkey`. |
 | output filename | `-o <PATH>` | For matomete, `-o` must be an existing directory. |
 | built-in sequential download | built-in sequential download | Matomete files are intentionally not downloaded in parallel. |
+| threaded upload | not implemented | This build avoids high-concurrency upload behavior. |
 | `--aria2` | not implemented | Multi-connection aria2 integration is planned only as a backlog item. |
 | JSON output | `--json` | Rust version provides a stable final JSON object. |
 

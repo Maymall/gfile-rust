@@ -5,7 +5,7 @@ use std::{env, path::PathBuf, time::Duration};
 use clap::{ArgAction, Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-use crate::{download, error::GfileError, jsonout};
+use crate::{download, error::GfileError, jsonout, upload};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -79,6 +79,42 @@ pub enum Commands {
     Upload {
         /// File to upload.
         file: PathBuf,
+
+        /// File lifetime in days.
+        #[arg(long = "lifetime", default_value_t = 100)]
+        lifetime: u16,
+
+        /// Upload chunk size, for example 50M or 1G.
+        #[arg(long = "chunk-size", default_value = "100MiB")]
+        chunk_size: String,
+
+        /// Skip post-upload size verification.
+        #[arg(long = "no-verify")]
+        no_verify: bool,
+
+        /// Per-request timeout in seconds.
+        #[arg(long = "timeout", default_value_t = 60)]
+        timeout: u64,
+
+        /// Retry count for retryable network/server failures.
+        #[arg(long = "retries", default_value_t = 3)]
+        retries: u32,
+
+        /// Override the default User-Agent.
+        #[arg(long = "user-agent")]
+        user_agent: Option<String>,
+
+        /// Save the fetched upload landing page HTML for diagnostics.
+        #[arg(long = "dump-page")]
+        dump_page: Option<PathBuf>,
+
+        /// Print one JSON object and disable progress output.
+        #[arg(long = "json")]
+        json: bool,
+
+        /// Disable progress and non-error status output.
+        #[arg(short = 'q', long = "quiet")]
+        quiet: bool,
     },
 }
 
@@ -155,11 +191,54 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
                 Err(error) => Err(error),
             }
         }
-        Commands::Upload { file: _ } => {
-            eprintln!("upload is not implemented yet");
-            Err(GfileError::UploadRejected {
-                detail: "upload command is not implemented yet".to_owned(),
+        Commands::Upload {
+            file,
+            lifetime,
+            chunk_size,
+            no_verify,
+            timeout,
+            retries,
+            user_agent,
+            dump_page,
+            json,
+            quiet,
+        } => {
+            let result = upload::upload(upload::UploadOptions {
+                file,
+                lifetime,
+                chunk_size: upload::parse_chunk_size(&chunk_size)?,
+                verify: !no_verify,
+                timeout: Duration::from_secs(timeout),
+                retries,
+                user_agent,
+                dump_page,
+                quiet: quiet || json,
+                allow_any_host: test_allow_any_host(),
+                entry_url: upload_entry_url(),
             })
+            .await;
+
+            match result {
+                Ok(report) => {
+                    if json {
+                        jsonout::print_upload_report(&report)?;
+                    } else if !quiet {
+                        println!("{}", report.url);
+                        if report.verified == Some(true) {
+                            eprintln!("Verified upload size: {} bytes", report.bytes);
+                        } else if report.verified.is_none() && !no_verify {
+                            eprintln!("Warning: upload size verification was unavailable.");
+                        }
+                    }
+                    Ok(RunOutcome::Success)
+                }
+                Err(error) if json => {
+                    let code = error.exit_code();
+                    jsonout::print_error(&error)?;
+                    Ok(RunOutcome::Failure(code))
+                }
+                Err(error) => Err(error),
+            }
         }
     }
 }
@@ -183,4 +262,8 @@ fn print_human_download_report(report: &download::DownloadReport) {
 
 fn test_allow_any_host() -> bool {
     env::var("GFILE_TEST_ALLOW_ANY_HOST").as_deref() == Ok("1")
+}
+
+fn upload_entry_url() -> String {
+    env::var("GFILE_TEST_ENTRY_URL").unwrap_or_else(|_| upload::default_entry_url().to_owned())
 }

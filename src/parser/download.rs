@@ -19,6 +19,7 @@ const MATOMETE_SIZE_SELECTOR: &str = ".matomete_file_info > span:nth-child(3)";
 const MATOMETE_DOWNLOAD_BUTTON_SELECTOR: &str = ".download_panel_btn_dl";
 const MATOMETE_ONCLICK_FILE_ID_RE: &str = r"download\(\d+, *'(.+?)'";
 const MATOMETE_SIZE_RE: &str = r"（(.+?)）";
+const KEY_INPUT_SELECTOR: &str = "#dlkey";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageInfo {
@@ -72,7 +73,9 @@ pub fn classify_page(html: &str, status: u16) -> PageState {
         return PageState::WrongKey;
     }
 
-    if has_selector(&document, "#dlkey").unwrap_or(false) {
+    // Live 2026-07-03: normal uploaded pages include disabled `#dlkey`;
+    // only an enabled key input means a key is required before download.
+    if has_enabled_key_input(&document).unwrap_or(false) {
         return PageState::NeedsKey;
     }
 
@@ -254,6 +257,13 @@ fn select_first_attr_in(
 fn has_selector(document: &Html, selector: &str) -> Result<bool, GfileError> {
     let selector = parse_selector(selector)?;
     Ok(document.select(&selector).next().is_some())
+}
+
+fn has_enabled_key_input(document: &Html) -> Result<bool, GfileError> {
+    let selector = parse_selector(KEY_INPUT_SELECTOR)?;
+    Ok(document
+        .select(&selector)
+        .any(|node| node.value().attr("disabled").is_none()))
 }
 
 fn parse_selector(selector: &str) -> Result<Selector, GfileError> {
