@@ -36,6 +36,26 @@ upload and download files straight from the terminal.
 
 ## Install
 
+### Quick install (recommended)
+
+Linux / macOS — downloads the latest release for your platform, verifies its
+SHA-256, and installs to `~/.local/bin` (override with `RGFILE_INSTALL_DIR`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Maymall/gigafile-rust-cli/main/install.sh | sh
+```
+
+Windows (PowerShell) — installs to `%LOCALAPPDATA%\Programs\rgfile` and adds it
+to your user `PATH`:
+
+```powershell
+irm https://raw.githubusercontent.com/Maymall/gigafile-rust-cli/main/install.ps1 | iex
+```
+
+Both scripts refuse to install anything whose checksum does not match the
+release's `SHA256SUMS`. Prefer to read before you run? Download
+[`install.sh`](install.sh) / [`install.ps1`](install.ps1) first and inspect it.
+
 ### Prebuilt binaries
 
 Download the archive for your platform from the

@@ -13,6 +13,7 @@ Versioning.
 - Add `rgfile info` to inspect GigaFile pages without downloading file bodies.
 - Add TOML configuration with platform default paths, `--config`, and `--no-config`.
 - Add opt-in JSONL history recording plus `rgfile history list` and `rgfile history clear`.
+- Add one-line install scripts (`install.sh` / `install.ps1`) that download the latest release, verify its SHA-256, and install the binary.
 
 ## [0.3.1] - 2026-07-03
 
