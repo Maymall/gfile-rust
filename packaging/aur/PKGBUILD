@@ -1,4 +1,4 @@
-# Maintainer: Maymall <tung1trump@gmail.com>
+# Maintainer: Maymall <282547878+Maymall@users.noreply.github.com>
 # In-repo copy of the AUR rgfile-bin PKGBUILD. The canonical package lives at
 # https://aur.archlinux.org/packages/rgfile-bin — keep both in sync on release.
 pkgname=rgfile-bin
