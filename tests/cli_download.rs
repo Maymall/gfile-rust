@@ -346,6 +346,105 @@ fn range_response(body: &[u8], start: u64, end: u64) -> ResponseTemplate {
         .set_body_bytes(body[start as usize..=end as usize].to_vec())
 }
 
+#[cfg(unix)]
+#[test]
+fn cli_download_sigint_prints_resume_summary() {
+    let prefix = binary_body(512 * 1024);
+    let declared_len = 2 * 1024 * 1024;
+    let server_uri = start_stalling_download_server(
+        include_str!("fixtures/single_basic.html")
+            .as_bytes()
+            .to_vec(),
+        prefix,
+        declared_len,
+    );
+    let temp = TempDir::new().unwrap();
+    let part_path = temp.path().join("example file.bin.part");
+
+    let child = Command::cargo_bin("rgfile")
+        .unwrap()
+        .env("GFILE_TEST_ALLOW_ANY_HOST", "1")
+        .args([
+            "--no-config",
+            "download",
+            &format!("{server_uri}/{FILE_ID}"),
+            "-o",
+        ])
+        .arg(temp.path())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    let part_has_data = |path: &std::path::Path| {
+        std::fs::metadata(path)
+            .map(|meta| meta.len() > 0)
+            .unwrap_or(false)
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline {
+        if part_has_data(&part_path) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(
+        part_has_data(&part_path),
+        "partial file never appeared before interrupt"
+    );
+
+    std::process::Command::new("kill")
+        .args(["-INT", &child.id().to_string()])
+        .status()
+        .unwrap();
+
+    let output = child.wait_with_output().unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(130), "stderr: {stderr}");
+    assert!(stderr.contains("Interrupted at"), "stderr: {stderr}");
+    assert!(
+        stderr.contains("Partial download kept:"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("Re-run the same command to resume."),
+        "stderr: {stderr}"
+    );
+    assert!(part_path.exists());
+}
+
+#[cfg(unix)]
+fn start_stalling_download_server(
+    page_body: Vec<u8>,
+    file_prefix: Vec<u8>,
+    declared_len: usize,
+) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming().take(2) {
+            let mut stream = stream.unwrap();
+            let mut request = [0_u8; 2048];
+            let read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            if request.starts_with(&format!("GET /{FILE_ID} ")) {
+                write_response(&mut stream, "text/html", page_body.len(), &page_body);
+            } else {
+                write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {declared_len}\r\nConnection: close\r\n\r\n"
+                )
+                .unwrap();
+                stream.write_all(&file_prefix).unwrap();
+                stream.flush().unwrap();
+                // Keep the connection open so the client stays mid-transfer
+                // until the test delivers SIGINT.
+                std::thread::sleep(std::time::Duration::from_secs(30));
+            }
+        }
+    });
+    format!("http://{addr}")
+}
+
 fn start_raw_mismatch_server(
     page_body: Vec<u8>,
     file_body: Vec<u8>,

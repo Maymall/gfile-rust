@@ -9,6 +9,7 @@ pub mod error;
 pub mod history;
 pub mod http;
 pub mod info;
+pub mod interrupt;
 pub mod jsonout;
 pub mod naming;
 pub mod parser;

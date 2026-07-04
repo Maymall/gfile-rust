@@ -330,6 +330,7 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
                         .as_deref()
                         .map(download::FileSelection::parse)
                         .transpose()?;
+                    crate::interrupt::spawn_ctrl_c_reporter();
                     let result = download::download(download::DownloadOptions {
                         url,
                         output,

@@ -7,6 +7,12 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-07-04
+
+### Changed
+
+- Print a summary when a download is interrupted with Ctrl-C: percent complete, bytes on disk, the kept `.part` path, and a resume hint; the process now exits with code 130.
+
 ## [0.8.0] - 2026-07-04
 
 ### Added

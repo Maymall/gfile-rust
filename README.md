@@ -150,6 +150,7 @@ opt in with `history.store_delete_keys = true`.
 | 19 | Upload rejected by the server |
 | 20 | Upload or self-update verification failed |
 | 21 | Download target is already locked by another rgfile process |
+| 130 | Interrupted with Ctrl-C; a summary shows the kept `.part` for resume |
 
 ## Notes
 

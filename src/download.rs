@@ -676,6 +676,11 @@ async fn consume_download_response_sequential(
         options.key.is_some(),
     )
     .await?;
+    crate::interrupt::set_active_download(Some(crate::interrupt::ActiveDownload {
+        part_path: resume.part_path.clone(),
+        sidecar_path: resume.sidecar_path.clone(),
+        expected: transfer.expected_total,
+    }));
 
     let file = if transfer.append {
         OpenOptions::new()
@@ -1168,6 +1173,11 @@ async fn try_download_file_segmented(
     )
     .await
     .map_err(SegmentDownloadError::Failed)?;
+    crate::interrupt::set_active_download(Some(crate::interrupt::ActiveDownload {
+        part_path: segment_resume.part_path.clone(),
+        sidecar_path: segment_resume.sidecar_path.clone(),
+        expected: Some(expected),
+    }));
 
     let segment_progress = segment_resume
         .segments
@@ -1890,12 +1900,26 @@ async fn write_sidecar(
         .map_err(|source| io_error(source, sidecar_path, IoOp::Write))
 }
 
+/// How many bytes of a `.part` are actually usable for resume, read back from
+/// disk: the v2 sidecar's per-segment progress when present (the segmented
+/// `.part` is preallocated to full size, so its length says nothing), else the
+/// sequential `.part` length itself.
+pub(crate) fn bytes_completed_on_disk(part_path: &Path, sidecar_path: &Path) -> Option<u64> {
+    if let Ok(bytes) = std::fs::read(sidecar_path) {
+        if let Some(sidecar) = parse_segment_sidecar(&bytes) {
+            return Some(sidecar.segments.iter().map(segment_completed_bytes).sum());
+        }
+    }
+    std::fs::metadata(part_path).ok().map(|meta| meta.len())
+}
+
 async fn promote_part(
     part_path: &Path,
     sidecar_path: &Path,
     final_path: &Path,
     force: bool,
 ) -> Result<(), GfileError> {
+    crate::interrupt::set_active_download(None);
     if final_path.exists() && force {
         fs::remove_file(final_path)
             .await
