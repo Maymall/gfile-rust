@@ -79,6 +79,7 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Commands {
     /// Download a file from a public GigaFile page.
+    #[command(visible_alias = "dl")]
     Download {
         /// Download page URL.
         url: String,
@@ -161,6 +162,7 @@ pub enum Commands {
         quiet: bool,
     },
     /// Upload a local file.
+    #[command(visible_alias = "ul")]
     Upload {
         /// File to upload.
         file: PathBuf,

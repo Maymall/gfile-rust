@@ -137,6 +137,20 @@ fn cli_upload_invalid_chunk_size_exits_2() {
 }
 
 #[test]
+fn cli_upload_ul_alias_matches_upload() {
+    let temp = TempDir::new().unwrap();
+    let file = write_file(&temp, "alias.bin", b"hello");
+
+    Command::cargo_bin("rgfile")
+        .unwrap()
+        .args(["--no-config", "ul", "--threads", "0", "--no-verify"])
+        .arg(file)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("upload threads must be between"));
+}
+
+#[test]
 fn cli_upload_threads_zero_exits_2() {
     let temp = TempDir::new().unwrap();
     let file = write_file(&temp, "threads-zero.bin", b"hello");

@@ -66,6 +66,22 @@ fn cli_download_invalid_url_exits_10() {
 }
 
 #[test]
+fn cli_download_dl_alias_matches_download() {
+    Command::cargo_bin("rgfile")
+        .unwrap()
+        .args([
+            "--no-config",
+            "dl",
+            "http://23.gigafile.nu/0123abcd-000000example",
+        ])
+        .assert()
+        .code(10)
+        .stderr(predicate::str::contains(
+            "not a supported GigaFile download URL",
+        ));
+}
+
+#[test]
 fn cli_download_threads_zero_exits_2() {
     Command::cargo_bin("rgfile")
         .unwrap()

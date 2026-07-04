@@ -61,15 +61,17 @@ binaries can also run `rgfile self-update`.
 ## Usage
 
 ```bash
-# Download
+# Download (alias: dl)
 rgfile download https://23.gigafile.nu/0123abcd-000000example
+rgfile dl https://23.gigafile.nu/0123abcd-000000example
 rgfile download https://23.gigafile.nu/0123abcd-000000example -o ./downloads
 rgfile download https://23.gigafile.nu/0123abcd-000000example --key EXAMPLE-KEY-0000
 rgfile download --select 1,3-5 https://23.gigafile.nu/0123abcd-000000example
 rgfile download --json https://23.gigafile.nu/0123abcd-000000example
 
-# Upload (prints the download URL and the delete key)
+# Upload (alias: ul; prints the download URL and the delete key)
 rgfile upload ./example-file.bin
+rgfile ul ./example-file.bin
 rgfile upload ./example-file.bin --lifetime 7
 rgfile upload ./example-file.bin --threads 4
 rgfile upload --json ./example-file.bin

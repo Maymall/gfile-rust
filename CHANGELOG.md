@@ -7,6 +7,12 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-04
+
+### Added
+
+- Add `dl` and `ul` as visible aliases for the `download` and `upload` subcommands.
+
 ## [0.7.1] - 2026-07-04
 
 ### Fixed
