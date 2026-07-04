@@ -7,6 +7,12 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-07-04
+
+### Fixed
+
+- Re-probe partial-download locks at deletion time in `parts clean`, so a download that starts while the confirmation prompt is open never loses its files.
+
 ## [0.9.0] - 2026-07-04
 
 ### Added

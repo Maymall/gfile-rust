@@ -129,7 +129,10 @@ pub fn clean(
     let mut failed = Vec::new();
 
     for group in groups {
-        if group.active {
+        // Re-probe the lock at deletion time: the interactive confirmation can
+        // sit for arbitrarily long after the listing snapshot, and a download
+        // started in between must never lose its files.
+        if group.active || group_lock_now_active(group) {
             skipped_active.push(group.clone());
             continue;
         }
@@ -259,6 +262,19 @@ fn classify_part_file(file_name: &str) -> Option<(String, PartFileKind)> {
     None
 }
 
+fn group_lock_now_active(group: &PartGroup) -> bool {
+    let Some(path) = group.lock_path.as_ref() else {
+        return false;
+    };
+    match lock_is_active(path) {
+        Ok(active) => active,
+        // A lock file that vanished since listing cannot protect anything.
+        Err(GfileError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound => false,
+        // When the probe itself fails, refuse to delete rather than guess.
+        Err(_) => true,
+    }
+}
+
 fn lock_is_active(path: &Path) -> Result<bool, GfileError> {
     let file = match OpenOptions::new().read(true).write(true).open(path) {
         Ok(file) => file,
@@ -378,6 +394,36 @@ mod tests {
         assert_eq!(clean_report.skipped_active.len(), 1);
         assert!(temp.path().join("active.bin.part").exists());
         assert!(!temp.path().join("stale.bin.part").exists());
+
+        FileExt::unlock(&lock_file).unwrap();
+    }
+
+    #[test]
+    fn clean_reprobes_lock_acquired_after_listing() {
+        let temp = tempfile::TempDir::new().unwrap();
+        fs::write(temp.path().join("late.bin.part"), b"late").unwrap();
+        let lock_path = temp.path().join("late.bin.part.json.lock");
+        fs::write(&lock_path, b"").unwrap();
+
+        // Listing happens while the lock is free, so the snapshot says inactive.
+        let report = list(temp.path().to_owned()).unwrap();
+        assert!(!group(&report, "late.bin").active);
+
+        // A download starts between the listing and the clean (the user may sit
+        // at the confirmation prompt for a long time).
+        let lock_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .unwrap();
+        FileExt::try_lock_exclusive(&lock_file).unwrap();
+
+        let clean_report = clean(temp.path().to_owned(), &report.groups, None).unwrap();
+
+        assert!(clean_report.deleted.is_empty());
+        assert_eq!(clean_report.skipped_active.len(), 1);
+        assert!(temp.path().join("late.bin.part").exists());
+        assert!(lock_path.exists());
 
         FileExt::unlock(&lock_file).unwrap();
     }
