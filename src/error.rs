@@ -55,6 +55,9 @@ pub enum GfileError {
     #[error("download target is locked at {}", path.display())]
     TargetLocked { path: PathBuf },
 
+    #[error("download target already exists at {}", path.display())]
+    TargetExists { path: PathBuf },
+
     #[error("delete rejected")]
     DeleteRejected { detail: String, status: Option<i64> },
 
@@ -107,6 +110,7 @@ impl GfileError {
             Self::KeyWrong => 16,
             Self::SizeMismatch { .. } => 17,
             Self::Io { .. } => 18,
+            Self::TargetExists { .. } => 18,
             Self::UploadRejected { .. } => 19,
             Self::VerifyFailed { .. } => 20,
             Self::ChecksumMismatch { .. } => 20,
@@ -128,6 +132,7 @@ impl GfileError {
             Self::SizeMismatch { .. } => "size_mismatch",
             Self::Io { .. } => "io",
             Self::TargetLocked { .. } => "target_locked",
+            Self::TargetExists { .. } => "target_exists",
             Self::DeleteRejected { .. } => "delete_rejected",
             Self::UploadRejected { .. } => "upload_rejected",
             Self::VerifyFailed { .. } => "verify_failed",
@@ -176,6 +181,10 @@ impl GfileError {
             Self::Io { source, path, op } => io_message(source, path, *op),
             Self::TargetLocked { path } => format!(
                 "Another rgfile process appears to be downloading this file. Wait for it to finish, or remove the lock file if that process crashed: {}",
+                path.display()
+            ),
+            Self::TargetExists { path } => format!(
+                "The download target already exists: {}. Pass --force to overwrite it, or move the existing file away.",
                 path.display()
             ),
             Self::DeleteRejected { detail, status } => {
@@ -405,6 +414,12 @@ mod tests {
                     path: PathBuf::from("example file.bin.part.json.lock"),
                 },
                 21,
+            ),
+            (
+                GfileError::TargetExists {
+                    path: PathBuf::from("example file.bin"),
+                },
+                18,
             ),
             (
                 GfileError::DeleteRejected {

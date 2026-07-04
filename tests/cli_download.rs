@@ -179,7 +179,8 @@ async fn cli_download_existing_target_without_force_exits_18() {
         .arg(temp.path())
         .assert()
         .code(18)
-        .stderr(predicate::str::contains("target exists"));
+        .stderr(predicate::str::contains("already exists"))
+        .stderr(predicate::str::contains("--force"));
 }
 
 #[tokio::test]

@@ -7,6 +7,13 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-07-04
+
+### Changed
+
+- Report an existing download target with a dedicated message that suggests `--force`, instead of disguising it as a local I/O error (JSON error code `target_exists`, exit code still 18).
+- Drop the project-history narration from the README introduction.
+
 ## [0.9.2] - 2026-07-04
 
 ### Fixed

@@ -5,10 +5,8 @@
 [![License: GPL-3.0-only](https://img.shields.io/badge/License-GPL--3.0--only-blue.svg)](LICENSE)
 
 `rgfile` is a fast, robust command-line client for [GigaFile.nu](https://gigafile.nu):
-upload, download, inspect, and delete shares straight from the terminal. It
-began as a Rust rewrite of the Python `gfile` tools and has grown into a
-full-featured client in its own right — resumable segmented downloads, share
-management, and protocol behavior verified against the live service.
+upload, download, inspect, and delete shares straight from the terminal, with
+protocol behavior verified against the live service.
 
 ## Features
 
@@ -177,7 +175,7 @@ otherwise pass `--delkey`.
 | 15 | Download key required |
 | 16 | Download key rejected |
 | 17 | Downloaded size mismatch |
-| 18 | Local filesystem error |
+| 18 | Local filesystem error, or the download target already exists (pass `--force` to overwrite) |
 | 19 | Upload rejected by the server |
 | 20 | Upload or self-update verification failed |
 | 21 | Download target is already locked by another rgfile process |

@@ -2047,11 +2047,9 @@ fn validate_output_for_page(page: &PageInfo, output: Option<&Path>) -> Result<()
 
 fn ensure_target_available(final_path: &Path, force: bool) -> Result<(), GfileError> {
     if final_path.exists() && !force {
-        return Err(io_error(
-            io::Error::new(io::ErrorKind::AlreadyExists, "target exists"),
-            final_path,
-            IoOp::Create,
-        ));
+        return Err(GfileError::TargetExists {
+            path: final_path.to_owned(),
+        });
     }
     Ok(())
 }
