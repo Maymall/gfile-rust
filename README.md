@@ -4,202 +4,100 @@
 [![crates.io](https://img.shields.io/crates/v/rgfile.svg)](https://crates.io/crates/rgfile)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-`rgfile` is a fast, robust command-line client for [GigaFile.nu](https://gigafile.nu):
-upload, download, inspect, and delete shares straight from the terminal, with
-protocol behavior verified against the live service.
+A command-line client for [GigaFile.nu](https://gigafile.nu).
 
-## Features
-
-**Downloads**
-
-- Single-file and multi-file (matomete) pages; `--key` for password-protected
-  links, `--select 1,3-5` to pick files by `rgfile info` index
-- Resumable: interrupted transfers continue where they stopped — including when
-  the page masks the display name; completion is atomic and size-verified
-- Segmented multi-connection mode (`--threads 1-16`) with one overall progress
-  bar plus per-connection child bars, each with its own speed
-- Ctrl-C prints how much reached disk and where the kept `.part` lives;
-  `rgfile parts list` / `parts clean` inspect and remove leftovers safely
-  (an active download's files are never touched)
-- Correct filenames decoded from `Content-Disposition` (RFC 5987): UTF-8 /
-  Japanese names survive intact even when the page shows a masked name
-
-**Uploads & share management**
-
-- Streaming chunked uploads with per-chunk retry and near-constant memory;
-  optional read-ahead window (`--threads`) keeps chunk completion ordered
-- Results include the download URL, delete key, and estimated expiry;
-  lifetime selectable (3–100 days)
-- `rgfile delete <url>` removes an uploaded share with its delete key
-
-**Workflow**
-
-- `rgfile info <url>` inspects a page without downloading
-- `dl` / `ul` aliases, shell completions, `--json` output and stable exit
-  codes for scripting
-- Interactive `rgfile config init` wizard, TOML config, opt-in local history
-- `rgfile self-update` with SHA-256 verification; static musl Linux binary,
-  plus macOS (arm64/Intel) and Windows builds
+English | [简体中文](docs/README.zh.md) | [日本語](docs/README.ja.md)
 
 ## Install
 
-One-liner (Linux / macOS; verifies SHA-256, installs to `~/.local/bin`):
-
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Maymall/gigafile-rust-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Maymall/gigafile-rust-cli/main/install.sh | sh   # Linux / macOS
+cargo install rgfile                                                                          # Rust 1.85+
+brew install Maymall/tap/rgfile                                                               # Homebrew
 ```
 
-Windows (PowerShell):
+Windows: `irm https://raw.githubusercontent.com/Maymall/gigafile-rust-cli/main/install.ps1 | iex`
 
-```powershell
-irm https://raw.githubusercontent.com/Maymall/gigafile-rust-cli/main/install.ps1 | iex
-```
-
-Other options:
-
-```bash
-cargo install rgfile                 # crates.io, needs Rust 1.85+
-brew install Maymall/tap/rgfile      # Homebrew (macOS / Linux)
-```
-
-`cargo install` places the binary in `~/.cargo/bin`; if your shell can't find
-`rgfile` afterwards, add `export PATH="$HOME/.cargo/bin:$PATH"` to your shell
-profile.
-
-Debian / Ubuntu: download `rgfile_<version>_amd64.deb` from the
-[latest release](https://github.com/Maymall/gigafile-rust-cli/releases/latest)
-and `sudo apt install ./rgfile_<version>_amd64.deb`. Release archives for all
-platforms (with `SHA256SUMS`) are on the same page.
-
-See [docs/CHANGELOG.md](docs/CHANGELOG.md) for release history.
-
-### Upgrade
-
-Rerun the install one-liner, or `cargo install rgfile`, or
-`brew upgrade rgfile` — whichever you installed with. Release-installed
-binaries can also run `rgfile self-update`.
+Prebuilt archives and a Debian package are on the
+[releases page](https://github.com/Maymall/gigafile-rust-cli/releases/latest).
+Release-installed binaries upgrade themselves with `rgfile self-update`.
 
 ## Usage
 
 ```bash
-# Download (alias: dl)
-rgfile download https://23.gigafile.nu/0123abcd-000000example
-rgfile dl https://23.gigafile.nu/0123abcd-000000example
-rgfile download https://23.gigafile.nu/0123abcd-000000example -o ./downloads
-rgfile download https://23.gigafile.nu/0123abcd-000000example --key EXAMPLE-KEY-0000
-rgfile download --select 1,3-5 https://23.gigafile.nu/0123abcd-000000example
-rgfile download --json https://23.gigafile.nu/0123abcd-000000example
+rgfile ul file.bin                   # upload; prints the URL, delete key, expiry
+rgfile ul file.bin --lifetime 7      # keep for 7 days (3–100)
 
-# Upload (alias: ul; prints the download URL and the delete key)
-rgfile upload ./example-file.bin
-rgfile ul ./example-file.bin
-rgfile upload ./example-file.bin --lifetime 7
-rgfile upload ./example-file.bin --threads 4
-rgfile upload --json ./example-file.bin
+rgfile dl <url>                      # download; interrupted transfers resume
+rgfile dl <url> --threads 8          # segmented download over several connections
+rgfile dl <url> --select 1,3-5       # pick files from a multi-file page
 
-# Delete an uploaded file by URL and delete key
-rgfile delete https://23.gigafile.nu/0123abcd-000000example --delkey EXA1
-rgfile delete https://23.gigafile.nu/0123abcd-000000example --yes
+rgfile info <url>                    # inspect a page without downloading
+rgfile delete <url>                  # take an upload down, using its delete key
+rgfile parts list                    # leftover partial downloads
+rgfile parts clean --older-than 7    # drop stale ones; active downloads are never touched
 
-# Inspect a page without downloading
-rgfile info https://23.gigafile.nu/0123abcd-000000example
-
-# Inspect or clean leftover partial downloads
-rgfile parts list ./downloads
-rgfile parts clean ./downloads --older-than 7 --yes
-
-# Generate shell completions
-rgfile completions zsh > _rgfile
+rgfile config init                   # interactive configuration
+rgfile history list                  # local history (opt-in)
+rgfile completions zsh               # shell completions
 ```
 
-If a page needs a key and none is given, `rgfile` prompts on an interactive
-terminal; non-interactive runs exit with code 15. See `rgfile <command> --help`
-for all options (`--timeout`, `--retries`, `--no-resume`, `--chunk-size`, ...).
+Every command takes `--json`. `rgfile <command> --help` has the rest.
 
 ## Configuration
 
-Optional TOML file at `~/.config/rgfile/config.toml` (Linux),
-`~/Library/Application Support/rgfile/config.toml` (macOS), or
-`%APPDATA%\rgfile\config.toml` (Windows). CLI options override config values;
-`--config <path>` loads a specific file, `--no-config` skips loading.
-
-Use `rgfile config init` to create a config interactively, or
-`rgfile config init --defaults` to write a commented defaults template without
-prompting. `rgfile config show` prints the effective values and where each one
-came from; add `--json` for machine-readable output. `rgfile config path`
-prints the path rgfile will use, even before the file exists.
+Optional TOML at `~/.config/rgfile/config.toml`
+(macOS: `~/Library/Application Support/rgfile/`, Windows: `%APPDATA%\rgfile\`).
+CLI flags override it.
 
 ```toml
 [download]
-dir = "/home/alice/Downloads"  # default output directory
-threads = 1                    # connections per file, 1-16 (see note below)
+dir = "/home/alice/Downloads"
+threads = 8                    # connections per file, 1–16
 
 [upload]
-lifetime = 7                   # default lifetime in days: 3/5/7/14/30/60/100
-threads = 1                    # read-ahead chunk window, 1-16 (see note below)
-
-[network]
-timeout = 60                   # idle timeout in seconds
-retries = 3
+lifetime = 7                   # days: 3/5/7/14/30/60/100
+threads = 4                    # read-ahead chunk window, 1–16
 
 [history]
-enabled = false                # opt-in local history
-store_delete_keys = false      # keep upload delete keys in history (plaintext)
+enabled = true                 # off by default
+store_delete_keys = false      # plaintext, opt-in
 ```
 
-## History
+## Behavior
 
-Off by default. Enable with `history.enabled = true` (or `--history` for one
-command). Records go to `~/.local/share/rgfile/history.jsonl` (platform
-equivalent): timestamp, operation, URL, file names, bytes, result.
-
-```bash
-rgfile history list
-rgfile history clear
-```
-
-Download passwords are never stored. Upload delete keys are stored only if you
-opt in with `history.store_delete_keys = true`. `rgfile delete` can use a stored
-delete key when history is enabled and the URL matches a previous upload record;
-otherwise pass `--delkey`.
+- Downloads resume from where they stopped, even when the page masks the file
+  name; completion is atomic and size-checked. Names come from
+  `Content-Disposition`, so UTF-8 survives.
+- Segmented downloads keep a few connections active and back off when the
+  server pushes back, instead of hammering it.
+- Ctrl-C prints how much reached disk and how to resume. Delete keys and
+  download passwords never appear in logs.
+- Uploads stream with per-chunk retry; chunk completion stays ordered because
+  the server drops out-of-order chunks (verified against the live service).
+- rgfile does not bypass GigaFile restrictions, guess passwords, or scrape links.
 
 ## Exit codes
 
 | Code | Meaning |
 |---:|---|
 | 0 | Success |
-| 2 | Invalid CLI arguments or option value |
-| 10 | Not a supported GigaFile URL |
-| 11 | Network failure / timeout / retries exhausted |
+| 2 | Invalid arguments |
+| 10 | Not a GigaFile URL |
+| 11 | Network failure, retries exhausted |
 | 12 | Unexpected HTTP status |
 | 13 | Page could not be parsed |
-| 14 | File not found or expired |
-| 15 | Download key required |
-| 16 | Download key rejected |
-| 17 | Downloaded size mismatch |
-| 18 | Local filesystem error, or the download target already exists (pass `--force` to overwrite) |
-| 19 | Upload rejected by the server |
-| 20 | Upload or self-update verification failed |
-| 21 | Download target is already locked by another rgfile process |
-| 22 | Delete request rejected by the server |
-| 130 | Interrupted with Ctrl-C; a summary shows the kept `.part` for resume |
+| 14 | Not found or expired |
+| 15 / 16 | Download key required / rejected |
+| 17 | Size mismatch |
+| 18 | Filesystem error, or the target already exists (`--force` overwrites) |
+| 19 | Upload rejected |
+| 20 | Verification failed |
+| 21 | Target locked by another rgfile process |
+| 22 | Delete rejected |
+| 130 | Interrupted; the kept `.part` resumes on re-run |
 
-## Notes
-
-- Downloads use one connection by default. `download --threads N` /
-  `download.threads` enables segmented downloads with one overall progress bar
-  and per-connection child bars. If GigaFile answers ranged requests with the
-  full file, rgfile automatically continues on a single connection.
-- Upload chunks must complete in order. Live protocol probing showed that
-  out-of-order chunk completion can drop data, so `upload --threads N` /
-  `upload.threads` uses a read-ahead pipeline: it may keep up to N chunks in
-  memory while still sending and completing chunks sequentially. Default
-  `threads = 1` keeps the streaming one-chunk behavior; higher values can use
-  roughly `N * chunk-size` memory plus HTTP overhead.
-- Uploads cannot resume across runs; a failed upload restarts from scratch.
-- `parts clean` never removes a group whose `.part.json.lock` is currently held
-  by another rgfile process.
-- rgfile does not bypass GigaFile restrictions, guess passwords, or scrape links.
+Changelog: [docs/CHANGELOG.md](docs/CHANGELOG.md)
 
 ## License
 

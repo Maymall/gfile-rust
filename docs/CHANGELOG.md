@@ -7,6 +7,10 @@ Versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- Rewrite the README in a terser voice and add Chinese and Japanese translations under `docs/`.
+
 ## [0.10.0] - 2026-07-04
 
 ### Added
