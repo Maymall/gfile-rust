@@ -38,25 +38,29 @@ pub fn spawn_ctrl_c_reporter() {
             return;
         }
         let active = ACTIVE_DOWNLOAD.lock().ok().and_then(|guard| guard.clone());
-        eprintln!();
-        match active {
+        let summary = match active {
             Some(active) => {
                 match download::bytes_completed_on_disk(&active.part_path, &active.sidecar_path) {
-                    Some(downloaded) => eprintln!(
-                        "{}",
+                    Some(downloaded) => {
                         format_interrupt_summary(downloaded, active.expected, &active.part_path)
-                    ),
+                    }
                     // Progress could not be read back reliably; say so rather
                     // than guessing, but still point at the kept .part.
-                    None => eprintln!(
+                    None => format!(
                         "Interrupted.\nPartial download kept: {}\nRe-run the same command to resume.",
                         active.part_path.display()
                     ),
                 }
             }
-            None => eprintln!("Interrupted."),
-        }
-        std::process::exit(130);
+            None => "Interrupted.".to_owned(),
+        };
+        // Print and exit while the progress display is suspended: download
+        // workers are still running, and a redraw between our print and the
+        // exit would overwrite the summary with a fresh progress frame.
+        crate::progress::suspend_active_draw(|| {
+            eprintln!("{summary}");
+            std::process::exit(130);
+        });
     });
 }
 

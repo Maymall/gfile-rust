@@ -32,8 +32,8 @@ async fn cli_upload_success_prints_url_and_delete_key() {
             "{}/{FILE_ID}",
             server.uri()
         )))
-        .stdout(predicate::str::contains("delete_key=EXAMPLE-DELKEY-0000"))
-        .stderr(predicate::str::contains("save this delete key"));
+        .stdout(predicate::str::contains("delete key: EXAMPLE-DELKEY-0000"))
+        .stderr(predicate::str::contains("Save the delete key"));
 }
 
 #[tokio::test]
@@ -52,7 +52,7 @@ async fn cli_upload_verbose_log_redacts_delete_key() {
         .arg(file)
         .assert()
         .success()
-        .stdout(predicate::str::contains("delete_key=EXAMPLE-DELKEY-0000"))
+        .stdout(predicate::str::contains("delete key: EXAMPLE-DELKEY-0000"))
         .stderr(predicate::str::contains("\"delkey\":\"***\""))
         .stderr(predicate::str::contains("EXAMPLE-DELKEY-0000").not());
 }

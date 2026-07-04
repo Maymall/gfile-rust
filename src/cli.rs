@@ -1305,14 +1305,23 @@ fn print_human_info_report(report: &info::InfoReport) {
 fn print_human_upload_report(report: &upload::UploadReport) {
     println!("{}", report.url);
     if let Some(delkey) = &report.delkey {
-        println!("delete_key={delkey}");
-        eprintln!("Warning: save this delete key; it is required to delete the uploaded file.");
-    }
-    if let Some(filename) = &report.remote_filename {
-        println!("remote_filename={filename}");
+        println!("delete key: {delkey}");
     }
     if let Some(expires_at) = &report.expires_at_estimate {
-        println!("expires_at_estimate={expires_at}");
+        println!("expires: {expires_at}");
+    }
+    if let Some(filename) = &report.remote_filename {
+        println!("remote name: {filename}");
+    }
+    if report.delkey.is_some() {
+        // Printed after the whole stdout block so it never lands between the
+        // values, and colored so it reads as a warning rather than more data.
+        let warning = "Save the delete key — it is the only way to take this upload down.";
+        if io::stderr().is_terminal() {
+            eprintln!("\x1b[33m{warning}\x1b[0m");
+        } else {
+            eprintln!("{warning}");
+        }
     }
 }
 

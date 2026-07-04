@@ -7,8 +7,15 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-07-04
+
+### Fixed
+
+- Print the Ctrl-C summary with the progress display suspended. Running download workers could redraw over it, so the summary sometimes never appeared and a stale progress frame was left behind.
+
 ### Changed
 
+- Lay out upload results one value per line (URL, delete key, expiry, remote name) and print the delete-key reminder after the block, in yellow on a terminal.
 - Rewrite the README in a terser voice and add Chinese and Japanese translations under `docs/`.
 
 ## [0.10.0] - 2026-07-04

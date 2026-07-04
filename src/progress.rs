@@ -29,6 +29,18 @@ fn current_active_draw() -> Option<ActiveDraw> {
     ACTIVE_DRAW.lock().ok().and_then(|guard| guard.clone())
 }
 
+/// Run `f` with the active progress display suspended (bars cleared, draw
+/// lock held). The Ctrl-C reporter prints its summary through this: writing
+/// to stderr while download workers keep redrawing races with the next frame,
+/// which can overwrite the summary and leave a stale stacked frame behind.
+pub fn suspend_active_draw<T>(f: impl FnOnce() -> T) -> T {
+    match current_active_draw() {
+        Some(ActiveDraw::Multi(multi)) => multi.suspend(f),
+        Some(ActiveDraw::Single(bar)) => bar.suspend(f),
+        None => f(),
+    }
+}
+
 /// `tracing` writer that routes log lines through the active progress
 /// display's `suspend`, so warnings printed mid-transfer do not break the
 /// progress redraw.
