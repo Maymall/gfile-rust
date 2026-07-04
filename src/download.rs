@@ -27,7 +27,7 @@ use crate::{
     parser::download::{
         PageInfo, PageKind, PageState, RemoteFile, classify_page, parse_download_page,
     },
-    progress::ByteProgress,
+    progress::{ByteProgress, SegmentProgressSpec, SegmentedProgress},
     urlinfo::parse_download_url,
 };
 
@@ -209,7 +209,7 @@ struct SegmentContext {
     expected: u64,
     key_used: bool,
     timeout: Duration,
-    progress: ByteProgress,
+    progress: SegmentedProgress,
     shared_segments: Arc<Mutex<Vec<SegmentState>>>,
 }
 
@@ -1095,19 +1095,20 @@ async fn try_download_file_segmented(
     .await
     .map_err(SegmentDownloadError::Failed)?;
 
-    let initial_bytes = segment_resume
+    let segment_progress = segment_resume
         .segments
         .iter()
-        .map(segment_completed_bytes)
-        .sum();
-    let progress = ByteProgress::new(
+        .map(|segment| SegmentProgressSpec {
+            len: segment_len(segment),
+            initial: segment_completed_bytes(segment),
+        })
+        .collect::<Vec<_>>();
+    let progress = SegmentedProgress::new(
         Some(expected),
         options.quiet,
         &progress_label(final_path, &remote_file.raw_name),
+        &segment_progress,
     );
-    if initial_bytes > 0 {
-        progress.inc(initial_bytes);
-    }
 
     let shared_segments = Arc::new(Mutex::new(segment_resume.segments.clone()));
     let context = SegmentContext {
@@ -1360,7 +1361,7 @@ async fn consume_segment_response(
             SegmentDownloadError::Failed(io_error(source, &context.part_path, IoOp::Write))
         })?;
         downloaded += chunk.len() as u64;
-        context.progress.inc(chunk.len() as u64);
+        context.progress.inc(index, chunk.len() as u64);
         update_segment_sidecar_sync(context, index, downloaded, false)
             .map_err(SegmentDownloadError::Failed)?;
     }

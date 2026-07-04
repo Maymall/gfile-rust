@@ -12,6 +12,7 @@ Arguments:
 Options:
       --lifetime <LIFETIME>      File lifetime in days
       --chunk-size <CHUNK_SIZE>  Upload chunk size, for example 50M or 1G [default: 100MiB]
+      --threads <THREADS>        Upload read-ahead chunk window (1-16; completion remains ordered)
       --no-verify                Skip post-upload size verification
       --timeout <TIMEOUT>        Idle timeout in seconds while uploading a chunk
       --retries <RETRIES>        Retry count for retryable network/server failures

@@ -172,6 +172,10 @@ pub enum Commands {
         #[arg(long = "chunk-size", default_value = "100MiB")]
         chunk_size: String,
 
+        /// Upload read-ahead chunk window (1-16; completion remains ordered).
+        #[arg(long = "threads")]
+        threads: Option<u8>,
+
         /// Skip post-upload size verification.
         #[arg(long = "no-verify")]
         no_verify: bool,
@@ -385,6 +389,7 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
             file,
             lifetime,
             chunk_size,
+            threads,
             no_verify,
             timeout,
             retries,
@@ -398,6 +403,7 @@ pub async fn run(cli: Cli) -> Result<RunOutcome, GfileError> {
                 file,
                 lifetime: config.resolve_lifetime(lifetime),
                 chunk_size: upload::parse_chunk_size(&chunk_size)?,
+                threads: config.resolve_upload_threads(threads)?,
                 verify: !no_verify,
                 timeout: Duration::from_secs(config.resolve_timeout_secs(timeout)),
                 retries: config.resolve_retries(retries),

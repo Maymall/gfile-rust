@@ -136,6 +136,34 @@ fn cli_upload_invalid_chunk_size_exits_2() {
         .stderr(predicate::str::contains("chunk size must be between"));
 }
 
+#[test]
+fn cli_upload_threads_zero_exits_2() {
+    let temp = TempDir::new().unwrap();
+    let file = write_file(&temp, "threads-zero.bin", b"hello");
+
+    Command::cargo_bin("rgfile")
+        .unwrap()
+        .args(["--no-config", "upload", "--threads", "0", "--no-verify"])
+        .arg(file)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("upload threads must be between"));
+}
+
+#[test]
+fn cli_upload_threads_seventeen_exits_2() {
+    let temp = TempDir::new().unwrap();
+    let file = write_file(&temp, "threads-seventeen.bin", b"hello");
+
+    Command::cargo_bin("rgfile")
+        .unwrap()
+        .args(["--no-config", "upload", "--threads", "17", "--no-verify"])
+        .arg(file)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("upload threads must be between"));
+}
+
 async fn mount_landing(server: &MockServer) {
     Mock::given(method("GET"))
         .and(path("/"))

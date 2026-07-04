@@ -1,6 +1,6 @@
 [package]
 name = "rgfile"
-version = "0.5.3"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.85"
 license = "GPL-3.0-only"
@@ -18,7 +18,7 @@ extended-description = """\
 rgfile is a fast, robust command-line client for GigaFile.nu. It supports \
 resumable single-file and multi-file downloads with atomic completion, \
 correct UTF-8 filenames decoded from Content-Disposition, and streaming \
-chunked uploads with constant memory usage."""
+chunked uploads with per-chunk retry."""
 # The published .deb ships the statically linked musl binary: no runtime deps.
 depends = ""
 assets = [

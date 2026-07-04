@@ -38,6 +38,7 @@ pub struct DownloadConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct UploadConfig {
     pub lifetime: Option<u16>,
+    pub threads: Option<u8>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
@@ -95,6 +96,14 @@ impl AppConfig {
             .or(self.upload.lifetime)
             .unwrap_or(DEFAULT_UPLOAD_LIFETIME)
     }
+
+    pub fn resolve_upload_threads(&self, cli_threads: Option<u8>) -> Result<u8, GfileError> {
+        upload::validate_threads(
+            cli_threads
+                .or(self.upload.threads)
+                .unwrap_or(upload::DEFAULT_UPLOAD_THREADS),
+        )
+    }
 }
 
 pub fn load(options: LoadOptions<'_>) -> Result<AppConfig, GfileError> {
@@ -139,6 +148,9 @@ fn parse_text(text: &str, path: &Path) -> Result<AppConfig, GfileError> {
 fn validate(config: &AppConfig) -> Result<(), GfileError> {
     if let Some(lifetime) = config.upload.lifetime {
         upload::validate_lifetime(lifetime)?;
+    }
+    if let Some(threads) = config.upload.threads {
+        upload::validate_threads(threads)?;
     }
     if let Some(threads) = config.download.threads {
         download::validate_threads(threads)?;
@@ -194,6 +206,10 @@ mod tests {
             config.resolve_download_threads(None).unwrap(),
             download::DEFAULT_DOWNLOAD_THREADS
         );
+        assert_eq!(
+            config.resolve_upload_threads(None).unwrap(),
+            upload::DEFAULT_UPLOAD_THREADS
+        );
         assert_eq!(config.resolve_lifetime(None), DEFAULT_UPLOAD_LIFETIME);
     }
 
@@ -206,7 +222,10 @@ mod tests {
                 dir: Some(output.clone()),
                 threads: Some(3),
             },
-            upload: UploadConfig { lifetime: Some(7) },
+            upload: UploadConfig {
+                lifetime: Some(7),
+                threads: Some(4),
+            },
             network: NetworkConfig {
                 timeout: Some(9),
                 retries: Some(1),
@@ -236,6 +255,8 @@ mod tests {
         );
         assert_eq!(config.resolve_lifetime(Some(5)), 5);
         assert_eq!(config.resolve_lifetime(None), 7);
+        assert_eq!(config.resolve_upload_threads(Some(2)).unwrap(), 2);
+        assert_eq!(config.resolve_upload_threads(None).unwrap(), 4);
     }
 
     #[test]
@@ -268,6 +289,19 @@ mod tests {
             error
                 .user_message()
                 .contains("download threads must be between 1 and 16")
+        );
+    }
+
+    #[test]
+    fn invalid_upload_threads_is_usage_error() {
+        let error = parse_text("[upload]\nthreads = 0\n", Path::new("config.toml"))
+            .expect_err("unsupported upload thread count should fail");
+
+        assert_eq!(error.exit_code(), 2);
+        assert!(
+            error
+                .user_message()
+                .contains("upload threads must be between 1 and 16")
         );
     }
 }

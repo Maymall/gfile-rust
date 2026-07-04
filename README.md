@@ -13,7 +13,7 @@ upload and download files straight from the terminal.
 - Select files from matomete pages with `rgfile info` indexes and `download --select 1,3-5`
 - Resumable downloads: interrupted transfers continue from where they stopped, completion is atomic and size-verified
 - Correct filenames: decoded from `Content-Disposition` (RFC 5987), so UTF-8 / Japanese names survive intact
-- Streaming uploads with constant memory (~10 MiB peak, independent of chunk size) and per-chunk retry
+- Streaming uploads with per-chunk retry; optional upload read-ahead keeps chunk completion ordered
 - Upload results include the download URL, delete key, and estimated expiry; lifetime selectable (3–100 days)
 - `rgfile info <url>` inspects a page without downloading
 - Optional TOML config and opt-in local history (`rgfile history list`)
@@ -71,6 +71,7 @@ rgfile download --json https://23.gigafile.nu/0123abcd-000000example
 # Upload (prints the download URL and the delete key)
 rgfile upload ./example-file.bin
 rgfile upload ./example-file.bin --lifetime 7
+rgfile upload ./example-file.bin --threads 4
 rgfile upload --json ./example-file.bin
 
 # Inspect a page without downloading
@@ -98,6 +99,7 @@ threads = 1                    # connections per file, 1-16 (see note below)
 
 [upload]
 lifetime = 7                   # default lifetime in days: 3/5/7/14/30/60/100
+threads = 1                    # read-ahead chunk window, 1-16 (see note below)
 
 [network]
 timeout = 60                   # idle timeout in seconds
@@ -143,10 +145,16 @@ opt in with `history.store_delete_keys = true`.
 
 ## Notes
 
-- Transfers use one connection by default. `--threads N` / `download.threads`
-  enables experimental segmented downloads; GigaFile currently answers ranged
-  requests with the full file, in which case rgfile automatically continues on
-  a single connection.
+- Downloads use one connection by default. `download --threads N` /
+  `download.threads` enables segmented downloads with one overall progress bar
+  and per-connection child bars. If GigaFile answers ranged requests with the
+  full file, rgfile automatically continues on a single connection.
+- Upload chunks must complete in order. Live protocol probing showed that
+  out-of-order chunk completion can drop data, so `upload --threads N` /
+  `upload.threads` uses a read-ahead pipeline: it may keep up to N chunks in
+  memory while still sending and completing chunks sequentially. Default
+  `threads = 1` keeps the streaming one-chunk behavior; higher values can use
+  roughly `N * chunk-size` memory plus HTTP overhead.
 - Uploads cannot resume across runs; a failed upload restarts from scratch.
 - rgfile does not bypass GigaFile restrictions, guess passwords, or scrape links.
 

@@ -4,7 +4,7 @@ use std::{
     io::{Read, Write},
     net::TcpListener,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
@@ -15,6 +15,7 @@ use rgfile::{
     upload::{MIN_CHUNK_SIZE, UploadOptions, upload},
 };
 use tempfile::TempDir;
+use tokio::sync::oneshot;
 use wiremock::{
     Mock, MockServer, Request, ResponseTemplate,
     matchers::{method, path, query_param},
@@ -118,6 +119,65 @@ async fn upload_sends_chunks_serially_from_zero() {
     assert!(body_contains(&requests[0].body, &[b'a'; 128]));
     assert!(body_contains(&requests[1].body, &[b'b'; 128]));
     assert!(body_contains(&requests[2].body, b"tail"));
+}
+
+#[tokio::test]
+async fn upload_threads_prefetches_but_completes_chunks_in_order() {
+    let server = MockServer::start().await;
+    mount_landing(&server).await;
+    let order = Arc::new(AtomicUsize::new(0));
+    let responder_order = Arc::clone(&order);
+    let (first_seen_tx, first_seen_rx) = oneshot::channel();
+    let first_seen_tx = Arc::new(Mutex::new(Some(first_seen_tx)));
+    Mock::given(method("POST"))
+        .and(path("/upload_chunk.php"))
+        .respond_with(move |request: &Request| {
+            let expected = responder_order.fetch_add(1, Ordering::SeqCst);
+            let chunk = multipart_text_field(&request.body, "chunk")
+                .parse::<usize>()
+                .unwrap();
+            assert_eq!(chunk, expected);
+            if chunk == 0 {
+                if let Some(sender) = first_seen_tx.lock().unwrap().take() {
+                    let _ = sender.send(());
+                }
+            }
+            let response = ResponseTemplate::new(200)
+                .set_body_json(serde_json::json!({ "status": 0, "url": format!("http://example.invalid/{FILE_ID}") }));
+            if chunk == 0 {
+                response.set_delay(Duration::from_millis(300))
+            } else {
+                response
+            }
+        })
+        .mount(&server)
+        .await;
+    let temp = TempDir::new().unwrap();
+    let mut body = vec![b'a'; MIN_CHUNK_SIZE as usize];
+    body.extend(vec![b'b'; MIN_CHUNK_SIZE as usize]);
+    body.extend(b"tail");
+    let file = write_file(&temp, "threaded.bin", &body);
+    let mut upload_options = options(&server, file.clone(), true, 0);
+    upload_options.threads = 2;
+    let upload_task = tokio::spawn(upload(upload_options));
+
+    tokio::time::timeout(Duration::from_secs(5), first_seen_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut rewritten = vec![b'a'; MIN_CHUNK_SIZE as usize];
+    rewritten.extend(vec![b'z'; MIN_CHUNK_SIZE as usize]);
+    rewritten.extend(b"tail");
+    std::fs::write(&file, rewritten).unwrap();
+
+    let report = upload_task.await.unwrap().unwrap();
+
+    assert_eq!(report.bytes, body.len() as u64);
+    assert_eq!(order.load(Ordering::SeqCst), 3);
+    let requests = upload_requests(&server).await;
+    assert_eq!(requests.len(), 3);
+    assert!(body_contains(&requests[1].body, &[b'b'; 128]));
+    assert!(!body_contains(&requests[1].body, &[b'z'; 128]));
 }
 
 #[tokio::test]

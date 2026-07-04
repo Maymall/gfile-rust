@@ -7,6 +7,18 @@ Versioning.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-04
+
+### Added
+
+- Show segmented downloads with one overall progress bar plus per-connection child bars when `download --threads N` renders on a TTY.
+- Add `upload --threads` and `[upload].threads` as an upload read-ahead window while preserving ordered chunk completion.
+
+### Changed
+
+- Document that live upload probing did not show safe out-of-order chunk completion, so higher upload thread counts prefetch chunks but still complete HTTP uploads serially.
+- Clarify upload memory usage for read-ahead mode as roughly `threads * chunk-size`.
+
 ## [0.5.3] - 2026-07-04
 
 ### Fixed
